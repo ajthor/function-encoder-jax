@@ -1,0 +1,8 @@
+chex
+datasets
+jax
+jaxlib
+matplotlib
+numpy
+optax
+scipy
