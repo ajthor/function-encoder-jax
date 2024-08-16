@@ -4,7 +4,6 @@ from jax import vmap, tree_util
 import jax.numpy as jnp
 
 
-
 class CoefficientMethod(ABC):
     """Abstract base class for coefficient methods."""
 
@@ -40,11 +39,13 @@ class MonteCarloIntegration(CoefficientMethod):
 
         return coefficients
 
+
 tree_util.register_pytree_node(
     MonteCarloIntegration,
     MonteCarloIntegration._tree_flatten,
     MonteCarloIntegration._tree_unflatten,
 )
+
 
 class LeastSquares(CoefficientMethod):
     """Compute the coefficients using least squares."""
@@ -62,6 +63,7 @@ class LeastSquares(CoefficientMethod):
         coefficients = jnp.linalg.solve(gram, F)
 
         return coefficients
+
 
 tree_util.register_pytree_node(
     LeastSquares,

@@ -15,10 +15,10 @@ class MLP(BaseModel):
         if params is not None:
             self.params = params
         else:
-            _, self.params = MLP.init_params(random.PRNGKey(0))
+            _, self.params = MLP.init_params(random.PRNGKey())
 
     @staticmethod
-    def init_params(rng, layer_sizes=[1, 32, 1]):
+    def init_params(rng, n_basis: int, layer_sizes=[1, 32, 1]):
         """Initialize the parameters of the MLP."""
 
         params = []
@@ -63,6 +63,5 @@ class MLP(BaseModel):
         }
         return (children, aux_data)
 
-tree_util.register_pytree_node(
-    MLP, MLP._tree_flatten, MLP._tree_unflatten
-)
+
+tree_util.register_pytree_node(MLP, MLP._tree_flatten, MLP._tree_unflatten)
