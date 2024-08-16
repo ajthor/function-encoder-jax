@@ -1,4 +1,6 @@
-from jax import jit, random, tree_util
+from functools import partial
+
+from jax import jit, vmap, random, tree_util
 import jax.numpy as jnp
 
 from function_encoder.model.base import BaseModel
@@ -27,22 +29,23 @@ class MLP(BaseModel):
             rng, w_key, b_key = random.split(rng, 3)
             C = jnp.sqrt(layer_sizes[0])
 
-            w = random.uniform(w_key, (n_in, n_out), minval=-C, maxval=C)
-            b = random.uniform(b_key, (n_out), minval=-C, maxval=C)
+            w = random.uniform(w_key, (n_basis, n_in, n_out), minval=-C, maxval=C)
+            b = random.uniform(b_key, (n_basis, n_out), minval=-C, maxval=C)
 
             params.append((w, b))
 
         # Last layer only has weights
         rng, w_key = random.split(rng)
         w = random.uniform(
-            w_key, (layer_sizes[-2], layer_sizes[-1]), minval=-C, maxval=C
+            w_key, (n_basis, layer_sizes[-2], layer_sizes[-1]), minval=-C, maxval=C
         )
 
         params.append((w,))
 
         return rng, params
 
-    @jit
+    @partial(vmap, in_axes=(0, None))  # vmap over the basis dimension
+    @partial(vmap, in_axes=(None, 0))  # vmap over the batch dimension
     def forward(self, X):
         """Forward pass."""
 
@@ -64,4 +67,8 @@ class MLP(BaseModel):
         return (children, aux_data)
 
 
-tree_util.register_pytree_node(MLP, MLP._tree_flatten, MLP._tree_unflatten)
+tree_util.register_pytree_node(
+    MLP,
+    MLP._tree_flatten,
+    MLP._tree_unflatten,
+)

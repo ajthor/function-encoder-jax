@@ -1,5 +1,3 @@
-from typing import List
-
 from abc import ABC, abstractmethod
 
 from functools import partial
@@ -17,7 +15,7 @@ class FunctionEncoder(ABC):
 
     def __init__(
         self,
-        basis_functions: List[BaseModel],
+        basis_functions: BaseModel,
         method: CoefficientMethod,
         inner_product: callable,
     ):
@@ -25,22 +23,22 @@ class FunctionEncoder(ABC):
         self.method = method
         self.inner_product = inner_product
 
-    # @jit
+    @jit
     def compute_representation(self, X, y):
         """Compute the representation of the function encoder."""
 
-        G = jnp.stack([g.forward(X) for g in self.basis_functions])
+        G = self.basis_functions.forward(X)
         coefficients = self.method.compute_coefficients(G, y)
 
         return coefficients, G
 
-    # @partial(vmap, in_axes=(None, 0, 0, 0))
+    @jit
     def forward(self, X, example_X, example_y):
         """Forward pass."""
 
         coefficients, _ = self.compute_representation(example_X, example_y)
 
-        G = jnp.stack([g.forward(X) for g in self.basis_functions])
+        G = self.basis_functions.forward(X)
         y = jnp.einsum("kmd,k->md", G, coefficients)
 
         return y
@@ -54,7 +52,7 @@ class FunctionEncoder(ABC):
     def _tree_unflatten(cls, aux_data, children):
         return cls(*children, **aux_data)
 
-    # @partial(jit, static_argnames=["optimizer"])
+    @partial(jit, static_argnames=["optimizer"])
     def update(fe, X, y, example_X, example_y, optimizer, opt_state):
         """Update the function encoder."""
 

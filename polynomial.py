@@ -1,5 +1,8 @@
+import jax
 from jax import random
 import jax.numpy as jnp
+
+import equinox as eqx
 
 from datasets import Dataset
 
@@ -27,7 +30,7 @@ def data_generator():
     for i in range(101):
 
         rng, coefficients = random_polynomial(rng, degree=2)
-        x = random.uniform(rng, (10, 1), minval=-1, maxval=1)
+        x = random.uniform(rng, (23, 1), minval=-1, maxval=1)
         y = jnp.polyval(coefficients, x)
 
         yield {"x": x, "y": y}
@@ -40,11 +43,8 @@ ds = ds.with_format("jax")
 inner_product = EuclideanInnerProduct
 method = LeastSquares(inner_product=inner_product)
 
-basis_functions = []
-k = 8
-for _ in range(k):
-    rng, params = MLP.init_params(rng)
-    basis_functions.append(MLP(params=params))
+rng, params = MLP.init_params(rng, n_basis=11, layer_sizes=[1, 32, 1])
+basis_functions = MLP(params=params)
 
 fe = FunctionEncoder(
     basis_functions=basis_functions,
