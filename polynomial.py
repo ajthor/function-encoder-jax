@@ -1,5 +1,5 @@
 import jax
-from jax import random
+from jax import random, tree_util
 import jax.numpy as jnp
 
 import equinox as eqx
@@ -8,7 +8,7 @@ from datasets import Dataset
 
 import optax
 
-from function_encoder.model.mlp import MLP
+# from function_encoder.model.mlp import MLP
 from function_encoder.function_encoder import FunctionEncoder
 from function_encoder.coefficients import LeastSquares
 from function_encoder.inner_product import EuclideanInnerProduct
@@ -43,8 +43,38 @@ ds = ds.with_format("jax")
 inner_product = EuclideanInnerProduct
 method = LeastSquares(inner_product=inner_product)
 
-rng, params = MLP.init_params(rng, n_basis=11, layer_sizes=[1, 32, 1])
-basis_functions = MLP(params=params)
+# rng, params = MLP.init_params(rng, n_basis=11, layer_sizes=[1, 32, 1])
+# basis_functions = MLP(params=params)
+
+
+@eqx.filter_vmap
+def make_ensemble(key):
+    return eqx.nn.MLP(2, 2, 2, 2, key=key)
+
+
+key = random.PRNGKey(0)
+keys = random.split(key, 11)
+mlp_ensemble = make_ensemble(keys)
+
+
+class BasisFunction(eqx.Module):
+    basis_functions: eqx.Module
+
+    def __init__(self, n_basis, key):
+        keys = random.split(key, n_basis)
+
+        def init(key):
+            return eqx.nn.MLP(1, 1, 32, 2, key=key)
+
+        self.basis_functions = eqx.filter_vmap(init)(keys)
+
+    def __call__(self, X, example_X, example_y):
+        # coefficients =
+        G = eqx.filter_vmap(self.basis_functions, in_axes=(0, None))(X)
+        return pred
+
+
+basis_functions = BasisFunction(11, key)
 
 fe = FunctionEncoder(
     basis_functions=basis_functions,
