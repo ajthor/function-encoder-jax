@@ -1,7 +1,9 @@
 chex
 datasets
+equinox
 jax
 jaxlib
+jaxtyping
 matplotlib
 numpy
 optax

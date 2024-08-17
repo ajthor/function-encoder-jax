@@ -1,138 +1,141 @@
-from abc import ABC, abstractmethod
+from typing import Callable
 
 from functools import partial
 
-from jax import jit, vmap, random, value_and_grad, tree_util
+import jax
+from jax import random
 import jax.numpy as jnp
+from jaxtyping import Array, PRNGKeyArray
 
 import equinox as eqx
 
 import optax
 
-# from function_encoder.model.base import BaseModel
-from function_encoder.coefficients import CoefficientMethod
+from datasets import Dataset
 
 
-# class FunctionEncoder(ABC):
-
-#     def __init__(
-#         self,
-#         basis_functions,
-#         method: CoefficientMethod,
-#         inner_product: callable,
-#     ):
-#         self.basis_functions = basis_functions
-#         self.method = method
-#         self.inner_product = inner_product
-
-#     @jit
-#     def compute_representation(self, X, y):
-#         """Compute the representation of the function encoder."""
-
-#         G = self.basis_functions.forward(X)
-#         coefficients = self.method.compute_coefficients(G, y)
-
-#         return coefficients, G
-
-#     @jit
-#     def forward(self, X, example_X, example_y):
-#         """Forward pass."""
-
-#         coefficients, _ = self.compute_representation(example_X, example_y)
-
-#         G = self.basis_functions.forward(X)
-#         y = jnp.einsum("kmd,k->md", G, coefficients)
-
-#         return y
-
-#     def _tree_flatten(self):
-#         children = (self.basis_functions,)
-#         aux_data = {"method": self.method, "inner_product": self.inner_product}
-#         return (children, aux_data)
-
-#     @classmethod
-#     def _tree_unflatten(cls, aux_data, children):
-#         return cls(*children, **aux_data)
-
-#     @partial(jit, static_argnames=["optimizer"])
-#     def update(fe, X, y, example_X, example_y, optimizer, opt_state):
-#         """Update the function encoder."""
-
-#         loss, grads = value_and_grad(loss_function)(fe, X, y, example_X, example_y)
-
-#         updates, opt_state = optimizer.update(grads, opt_state)
-#         fe = optax.apply_updates(fe, updates)
-
-#         return fe, opt_state, loss
-
-
-# def loss_function(fe, X, y, example_X, example_y):
-#     """Compute the loss."""
-
-#     y_pred = fe.forward(X, example_X, example_y)
-#     prediction_error = y - y_pred
-#     # prediction_loss = fe.inner_product(prediction_error, prediction_error).mean()
-#     prediction_loss = jnp.mean(jnp.sum(prediction_error**2, axis=1))
-
-#     total_loss = prediction_loss
-
-#     return total_loss
-
-
-# tree_util.register_pytree_node(
-#     FunctionEncoder,
-#     FunctionEncoder._tree_flatten,
-#     FunctionEncoder._tree_unflatten,
-# )
-
-from typing import Callable
-from jaxtyping import Array, PRNGKeyArray
+def monte_carlo_integration(G, y):
+    return jnp.einsum("mkd,md->k", G, y) / G.shape[0]
 
 
 def least_squares(G, y):
-    """Compute the coefficients using least squares."""
-
-    # Compute the matrix G^T F
-    F = jnp.einsum("kmd,md->k", G, y)
-
-    # Compute the Gram matrix K = G^T G
-    K = jnp.einsum("kmd,lmd->kl", G, G)
-
-    # Solve the linear system
-    coefficients = jnp.linalg.solve(K, F)
-
-    return coefficients, K
+    F = jnp.einsum("mkd,md->k", G, y)
+    K = jnp.einsum("mkd,mld->kl", G, G)
+    return jnp.linalg.solve(K, F)
 
 
-class FunctionEncoder(eqx.Module):
-    basis_functions: eqx.nn.MLP
-    coefficients_method: Callable
+class CustomMLP(eqx.Module):
+    layers: tuple[eqx.nn.Linear, ...]
+
+    def __init__(self, key):
+        key1, key2, key3 = random.split(key, 3)
+        self.layers = tuple(
+            [
+                eqx.nn.Linear(1, 32, key=key1),
+                eqx.nn.Linear(32, 32, key=key2),
+                eqx.nn.Linear(32, 1, key=key3),
+            ]
+        )
+
+    def __call__(self, x):
+        for layer in self.layers[:-1]:
+            x = jnp.tanh(layer(x))
+        return self.layers[-1](x)
+
+
+class FunctionEncoder(eqx.Module, strict=True):
+    basis_functions: eqx.Module
 
     def __init__(
         self,
         basis_size: int,
-        coefficients_method: Callable = least_squares,
         *args,
         key: PRNGKeyArray,
-        **kwargs
+        **kwargs,
     ):
 
         # Initialize the basis functions
         keys = random.split(key, basis_size)
-        make_mlp = lambda key: eqx.nn.MLP(*args, **kwargs, key=key)
-        self.basis_functions = eqx.filter_vmap(make_mlp)(keys)
-
-        self.coefficients_method = coefficients_method
+        make_basis = eqx.filter_vmap(lambda key: eqx.nn.MLP(*args, key=key, **kwargs))
+        self.basis_functions = make_basis(keys)
 
     def __call__(self, X: Array, example_X: Array, example_y: Array):
-        forward = eqx.filter_vmap(self.basis_functions, in_axes=(0, None))
 
-        Gx = forward(example_X)
+        @eqx.filter_vmap(in_axes=(eqx.if_array(0), None))
+        def forward(basis_functions, X):
+            return basis_functions(X)
 
-        coefficients = self.coefficients_method(Gx, example_y)
-        G = forward(X)
+        Gx = eqx.filter_vmap(forward, in_axes=(None, 0))(
+            self.basis_functions, example_X
+        )
+        coefficients = least_squares(Gx, example_y)
+
+        G = forward(self.basis_functions, X)
 
         # Compute the predictions y = c^T G
         y = jnp.einsum("kd,k->d", G, coefficients)
 
         return y
+
+
+def train(
+    model: FunctionEncoder,
+    ds: Dataset,
+    optimizer: optax.GradientTransformation = None,
+    opt_state: optax.OptState = None,
+    steps: int = 100,
+    batch_size: int = 32,
+):
+
+    if optimizer is None:
+        optimizer = optax.chain(
+            optax.clip_by_global_norm(1.0),
+            optax.adam(1e-3),
+        )
+        # optimizer = optax.MultiSteps(
+        #     optimizer, every_k_schedule=batch_size
+        # )  # Gradient accumulation
+
+    if opt_state is None:
+        opt_state = optimizer.init(eqx.filter(model, eqx.is_inexact_array))
+
+    def loss_function(model, X, y, example_X, example_y):
+        y_pred = eqx.filter_vmap(model, in_axes=(0, None, None))(
+            X, example_X, example_y
+        )
+        return jnp.mean(jnp.linalg.norm(y - y_pred, axis=1) ** 2)
+
+    @eqx.filter_jit
+    def update(flattened_model, X, y, example_X, example_y, flattened_opt_state):
+        model = jax.tree_util.tree_unflatten(treedef_model, flattened_model)
+        opt_state = jax.tree_util.tree_unflatten(treedef_opt_state, flattened_opt_state)
+
+        loss, grads = eqx.filter_value_and_grad(loss_function)(
+            model, X, y, example_X, example_y
+        )
+        updates, update_opt_state = optimizer.update(grads, opt_state)
+        update_model = optax.apply_updates(model, updates)
+        # learning_rate = 0.1
+        # update_model = jax.tree_util.tree_map(
+        #     lambda m, g: m - learning_rate * g, model, grads
+        # )
+
+        flattened_update_model = jax.tree_util.tree_leaves(update_model)
+        flattened_update_opt_state = jax.tree_util.tree_leaves(update_opt_state)
+        return model, opt_state, loss
+
+    flattened_model, treedef_model = jax.tree_util.tree_flatten(model)
+    flattened_opt_state, treedef_opt_state = jax.tree_util.tree_flatten(opt_state)
+
+    for i, point in enumerate(ds):
+        x, y = point["x"], point["y"]
+        example_x, example_y = x, y
+        flattened_model, flattened_opt_state, loss = update(
+            flattened_model, x, y, example_x, example_y, flattened_opt_state
+        )
+
+        if i % 10 == 0:
+            print(f"Loss: {loss}")
+
+    model = jax.tree_util.tree_unflatten(treedef_model, flattened_model)
+    return model
