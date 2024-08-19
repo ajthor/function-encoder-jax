@@ -1,66 +1,60 @@
 import jax
-from jax import random, tree_util
+from jax import jit, vmap, random, tree_util
 import jax.numpy as jnp
-
-import equinox as eqx
 
 from datasets import Dataset
 
 import optax
 
+from datasets.polynomial import (
+    random_polynomial,
+    random_polynomial_dataset,
+    data_generator,
+)
 from function_encoder.function_encoder import FunctionEncoder, train
 
 import matplotlib.pyplot as plt
 
 rng = random.PRNGKey(0)
 
-
-def random_polynomial(rng, degree=2):
-    rng, key = random.split(rng)
-    coefficients = random.uniform(key, (degree + 1,), minval=-1, maxval=1)
-
-    return rng, coefficients
-
-
-def data_generator():
-    rng = random.PRNGKey(0)
-    for i in range(101):
-
-        rng, coefficients = random_polynomial(rng, degree=2)
-        x = random.uniform(rng, (23, 1), minval=-1, maxval=1)
-        y = jnp.polyval(coefficients, x)
-
-        yield {"x": x, "y": y}
+rng, key = random.split(rng)
 
 
 ds = Dataset.from_generator(data_generator)
 ds = ds.to_iterable_dataset()
 ds = ds.with_format("jax")
 
-
-model = FunctionEncoder(11, in_size=1, out_size=1, width_size=32, depth=2, key=rng)
-model = train(model, ds, steps=100, batch_size=10)
+model = FunctionEncoder(
+    basis_size=100,
+    layer_sizes=(1, 32, 1),
+    activation_function=jax.nn.tanh,
+    key=key,
+)
+model = train(model, ds, batch_size=10)
 
 
 # Plot
 
-rng, C = random_polynomial(rng, degree=2)
+fig, ax = plt.subplots(1, 3, figsize=(15, 5))
 
-x = jnp.linspace(-1, 1, 100).reshape(-1, 1)
-y = jnp.polyval(C, x)
+for _ax in ax:
 
-rng, key = random.split(rng)
-example_x = random.uniform(key, (10, 1), minval=-1, maxval=1)
-example_y = jnp.polyval(C, example_x)
+    rng, poly_key, data_key = random.split(rng, 3)
+    C = random_polynomial(poly_key)
+    data = random_polynomial_dataset(data_key, C, n_samples=1000, n_examples=10)
+    X, y, example_X, example_y = (
+        data["X"],
+        data["y"],
+        data["example_X"],
+        data["example_y"],
+    )
 
-y_pred = model.forward(x, example_x, example_y)
+    coefficients = model.compute_coefficients(example_X, example_y)
+    y_pred = model(X, coefficients)
 
-fig = plt.figure()
-ax = fig.add_subplot(111)
+    _ax.plot(X, y, label="True")
+    _ax.plot(X, y_pred, label="Predicted")
 
-ax.plot(x, y, label="True")
-ax.plot(x, y_pred, label="Predicted")
-
-ax.scatter(example_x, example_y, color="red")
+    _ax.scatter(example_X, example_y, color="red")
 
 plt.show()

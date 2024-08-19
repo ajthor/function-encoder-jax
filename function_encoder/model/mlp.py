@@ -1,45 +1,50 @@
 from typing import Callable
 
 import jax
-from jax import random
+from jax import jit, vmap, random
 import jax.numpy as jnp
 
-from jaxtyping import Array
+from jaxtyping import Array, Key
 
-from function_encoder.model.base_model import BaseModel
+from dataclasses import dataclass, InitVar
+
+from function_encoder.model.base import BaseModel
 
 
 @jax.tree_util.register_pytree_node_class
+@dataclass
 class MLP(BaseModel):
 
-    def __init__(
-        self,
-        layer_sizes: Array,
-        activation_function: Callable,
-        key,
-    ):
+    params: tuple | None = None
+    activation_function: Callable = jax.nn.relu
 
-        params = []
+    layer_sizes: InitVar[tuple | None] = (1, 32, 1)
+    key: InitVar[Key | None] = None
 
-        for n_in, n_out in zip(layer_sizes[:-2], layer_sizes[1:-1]):
-            key, w_key, b_key = random.split(key, 3)
+    def __post_init__(self, layer_sizes, key):
 
-            C = jnp.sqrt(layer_sizes[0])
+        if self.params is None and key is not None:
 
-            w = random.uniform(w_key, (n_in, n_out), minval=-C, maxval=C)
-            b = random.uniform(b_key, (n_out), minval=-C, maxval=C)
+            params = []
 
-            params.append((w, b))
+            for n_in, n_out in zip(layer_sizes[:-2], layer_sizes[1:-1]):
+                key, w_key, b_key = random.split(key, 3)
 
-        key, w_key = random.split(key)
-        w = random.uniform(
-            w_key, (layer_sizes[-2], layer_sizes[-1]), minval=-C, maxval=C
-        )
+                C = jnp.sqrt(layer_sizes[0])
 
-        params.append((w,))
+                w = random.uniform(w_key, (n_in, n_out), minval=-C, maxval=C)
+                b = random.uniform(b_key, (n_out), minval=-C, maxval=C)
 
-        self.params = params
-        self.activation_function = activation_function
+                params.append((w, b))
+
+            key, w_key = random.split(key)
+            w = random.uniform(
+                w_key, (layer_sizes[-2], layer_sizes[-1]), minval=-C, maxval=C
+            )
+
+            params.append((w,))
+
+            self.params = tuple(params)
 
     def __call__(self, X):
 
@@ -54,7 +59,9 @@ class MLP(BaseModel):
 
     def tree_flatten(self):
         children = (self.params,)
-        aux_data = {"activation_function": self.activation_function}
+        aux_data = {
+            "activation_function": self.activation_function,
+        }
         return children, aux_data
 
     @classmethod
