@@ -7,101 +7,25 @@ import jax.numpy as jnp
 
 import equinox as eqx
 
-import optax
-
-# from function_encoder.model.base import BaseModel
-from function_encoder.coefficients import CoefficientMethod
-
-
-# class FunctionEncoder(ABC):
-
-#     def __init__(
-#         self,
-#         basis_functions,
-#         method: CoefficientMethod,
-#         inner_product: callable,
-#     ):
-#         self.basis_functions = basis_functions
-#         self.method = method
-#         self.inner_product = inner_product
-
-#     @jit
-#     def compute_representation(self, X, y):
-#         """Compute the representation of the function encoder."""
-
-#         G = self.basis_functions.forward(X)
-#         coefficients = self.method.compute_coefficients(G, y)
-
-#         return coefficients, G
-
-#     @jit
-#     def forward(self, X, example_X, example_y):
-#         """Forward pass."""
-
-#         coefficients, _ = self.compute_representation(example_X, example_y)
-
-#         G = self.basis_functions.forward(X)
-#         y = jnp.einsum("kmd,k->md", G, coefficients)
-
-#         return y
-
-#     def _tree_flatten(self):
-#         children = (self.basis_functions,)
-#         aux_data = {"method": self.method, "inner_product": self.inner_product}
-#         return (children, aux_data)
-
-#     @classmethod
-#     def _tree_unflatten(cls, aux_data, children):
-#         return cls(*children, **aux_data)
-
-#     @partial(jit, static_argnames=["optimizer"])
-#     def update(fe, X, y, example_X, example_y, optimizer, opt_state):
-#         """Update the function encoder."""
-
-#         loss, grads = value_and_grad(loss_function)(fe, X, y, example_X, example_y)
-
-#         updates, opt_state = optimizer.update(grads, opt_state)
-#         fe = optax.apply_updates(fe, updates)
-
-#         return fe, opt_state, loss
-
-
-# def loss_function(fe, X, y, example_X, example_y):
-#     """Compute the loss."""
-
-#     y_pred = fe.forward(X, example_X, example_y)
-#     prediction_error = y - y_pred
-#     # prediction_loss = fe.inner_product(prediction_error, prediction_error).mean()
-#     prediction_loss = jnp.mean(jnp.sum(prediction_error**2, axis=1))
-
-#     total_loss = prediction_loss
-
-#     return total_loss
-
-
-# tree_util.register_pytree_node(
-#     FunctionEncoder,
-#     FunctionEncoder._tree_flatten,
-#     FunctionEncoder._tree_unflatten,
-# )
 
 from typing import Callable
 from jaxtyping import Array, PRNGKeyArray
 
+from function_encoder.model.mlp import MLP
+
+
+def monte_carlo_integration(G, y):
+    """Compute the coefficients using Monte Carlo integration."""
+    F = jnp.einsum("kmd,md->k", G, y)
+    return F / G.shape[0]
+
 
 def least_squares(G, y):
     """Compute the coefficients using least squares."""
-
-    # Compute the matrix G^T F
     F = jnp.einsum("kmd,md->k", G, y)
-
-    # Compute the Gram matrix K = G^T G
     K = jnp.einsum("kmd,lmd->kl", G, G)
-
-    # Solve the linear system
     coefficients = jnp.linalg.solve(K, F)
-
-    return coefficients, K
+    return coefficients
 
 
 class FunctionEncoder(eqx.Module):
@@ -119,20 +43,33 @@ class FunctionEncoder(eqx.Module):
 
         # Initialize the basis functions
         keys = random.split(key, basis_size)
-        make_mlp = lambda key: eqx.nn.MLP(*args, **kwargs, key=key)
+        make_mlp = lambda key: MLP(*args, **kwargs, key=key)
         self.basis_functions = eqx.filter_vmap(make_mlp)(keys)
 
         self.coefficients_method = coefficients_method
 
-    def __call__(self, X: Array, example_X: Array, example_y: Array):
-        forward = eqx.filter_vmap(self.basis_functions, in_axes=(0, None))
+        # self._forward = eqx.filter_vmap(lambda model, x: model(x), in_axes=(eqx.if_array(0), None))
 
-        Gx = forward(example_X)
+    # def forward(self, X: Array):
+    #     """Forward pass through the basis functions."""
+    #     G = self._forward(self.basis_functions, X)
+    #     return G
 
-        coefficients = self.coefficients_method(Gx, example_y)
-        G = forward(X)
+    def compute_coefficients(self, example_X: Array, example_y: Array):
+        """Compute the coefficients."""
+        forward = eqx.filter_vmap(
+            lambda model, x: model(x), in_axes=(eqx.if_array(0), None)
+        )
+        G = forward(self.basis_functions, example_X)
+        coefficients = self.coefficients_method(G, example_y)
+        return coefficients
 
-        # Compute the predictions y = c^T G
-        y = jnp.einsum("kd,k->d", G, coefficients)
+    def __call__(self, X: Array, coefficients: Array):
+        """Evaluate the function encoder."""
+        forward = eqx.filter_vmap(
+            lambda model, x: model(x), in_axes=(eqx.if_array(0), None)
+        )
+        G = forward(self.basis_functions, X)
+        y = jnp.einsum("kmd,k->md", G, coefficients)
 
         return y

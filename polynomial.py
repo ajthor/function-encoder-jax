@@ -8,91 +8,83 @@ from datasets import Dataset
 
 import optax
 
-# from function_encoder.model.mlp import MLP
 from function_encoder.function_encoder import FunctionEncoder
-from function_encoder.coefficients import LeastSquares
-from function_encoder.inner_product import EuclideanInnerProduct
 
 import matplotlib.pyplot as plt
 
 rng = random.PRNGKey(0)
 
 
-def random_polynomial(rng, degree=2):
-    rng, key = random.split(rng)
+def random_polynomial(key, degree=3):
     coefficients = random.uniform(key, (degree + 1,), minval=-1, maxval=1)
-
-    return rng, coefficients
+    return coefficients
 
 
 def data_generator():
-    rng = random.PRNGKey(0)
-    for i in range(101):
+    n_functions = 1000
 
-        rng, coefficients = random_polynomial(rng, degree=2)
-        x = random.uniform(rng, (23, 1), minval=-1, maxval=1)
+    for i in range(n_functions):
+        key, coefficients_key, x_key, example_key = random.split(rng, 4)
+
+        coefficients = random_polynomial(coefficients_key)
+
+        x = random.uniform(x_key, (100, 1), minval=-1, maxval=1)
         y = jnp.polyval(coefficients, x)
 
-        yield {"x": x, "y": y}
+        example_x = random.uniform(example_key, (10, 1), minval=-1, maxval=1)
+        example_y = jnp.polyval(coefficients, example_x)
+
+        yield {"x": x, "y": y, "example_X": example_x, "example_y": example_y}
 
 
 ds = Dataset.from_generator(data_generator)
 ds = ds.to_iterable_dataset()
 ds = ds.with_format("jax")
 
-inner_product = EuclideanInnerProduct
-method = LeastSquares(inner_product=inner_product)
 
-# rng, params = MLP.init_params(rng, n_basis=11, layer_sizes=[1, 32, 1])
-# basis_functions = MLP(params=params)
+fe = FunctionEncoder(basis_size=8, layer_sizes=(1, 32, 1), key=rng)
 
 
-@eqx.filter_vmap
-def make_ensemble(key):
-    return eqx.nn.MLP(2, 2, 2, 2, key=key)
-
-
-key = random.PRNGKey(0)
-keys = random.split(key, 11)
-mlp_ensemble = make_ensemble(keys)
-
-
-class BasisFunction(eqx.Module):
-    basis_functions: eqx.Module
-
-    def __init__(self, n_basis, key):
-        keys = random.split(key, n_basis)
-
-        def init(key):
-            return eqx.nn.MLP(1, 1, 32, 2, key=key)
-
-        self.basis_functions = eqx.filter_vmap(init)(keys)
-
-    def __call__(self, X, example_X, example_y):
-        # coefficients =
-        G = eqx.filter_vmap(self.basis_functions, in_axes=(0, None))(X)
-        return pred
-
-
-basis_functions = BasisFunction(11, key)
-
-fe = FunctionEncoder(
-    basis_functions=basis_functions,
-    method=method,
-    inner_product=inner_product,
-)
-
-optimizer = optax.chain(
+opt = optax.chain(
     optax.clip_by_global_norm(1.0),
     optax.adam(1e-3),
 )
-optimizer = optax.MultiSteps(optimizer, every_k_schedule=10)  # Gradient accumulation
-opt_state = optimizer.init(fe)
+opt = optax.MultiSteps(opt, every_k_schedule=10)  # Gradient accumulation
+opt_state = opt.init(eqx.filter(fe, eqx.is_inexact_array))
+
+
+def loss_fn(fe, X, y, example_X, example_y):
+    coefficients = fe.compute_coefficients(example_X, example_y)
+    y_pred = fe(X, coefficients)
+
+    pred_error = y - y_pred
+    pred_loss = jnp.mean(jnp.linalg.norm(pred_error, axis=-1) ** 2)
+
+    return pred_loss
+
+
+@eqx.filter_jit
+def update(fe, X, y, example_X, example_y, opt_state):
+    loss, grads = eqx.filter_value_and_grad(loss_fn)(fe, X, y, example_X, example_y)
+
+    # If something breaks, i.e. nan, pass
+    if not jnp.isfinite(loss):
+        pass
+
+    updates, opt_state = opt.update(grads, opt_state)
+    fe = eqx.apply_updates(fe, updates)
+
+    return fe, opt_state, loss
+
 
 for i, point in enumerate(ds):
-    fe, opt_state, loss = fe.update(
-        point["x"], point["y"], point["x"], point["y"], optimizer, opt_state
+    X, y, example_X, example_y = (
+        point["x"],
+        point["y"],
+        point["example_X"],
+        point["example_y"],
     )
+    fe, opt_state, loss = update(fe, X, y, example_X, example_y, opt_state)
 
     if i % 10 == 0:
         print(f"Loss: {loss}")
@@ -100,16 +92,18 @@ for i, point in enumerate(ds):
 
 # Plot
 
-rng, C = random_polynomial(rng, degree=2)
 
-x = jnp.linspace(-1, 1, 100).reshape(-1, 1)
+rng, coefficients_key, example_key = random.split(rng, 3)
+C = random_polynomial(coefficients_key)
+
+x = jnp.linspace(-1, 1, 1000).reshape(-1, 1)
 y = jnp.polyval(C, x)
 
-rng, key = random.split(rng)
-example_x = random.uniform(key, (10, 1), minval=-1, maxval=1)
+example_x = random.uniform(example_key, (10, 1), minval=-1, maxval=1)
 example_y = jnp.polyval(C, example_x)
 
-y_pred = fe.forward(x, example_x, example_y)
+coefficients = fe.compute_coefficients(example_x, example_y)
+y_pred = fe(x, coefficients)
 
 fig = plt.figure()
 ax = fig.add_subplot(111)
