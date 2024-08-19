@@ -1,116 +1,75 @@
-from typing import Callable
+from abc import ABC, abstractmethod
 
 from functools import partial
 
-import jax
-from jax import jit, vmap, random
+from jax import jit, vmap, random, value_and_grad, tree_util
 import jax.numpy as jnp
-from jaxtyping import Array, PRNGKeyArray, Key
 
-from dataclasses import dataclass, InitVar
+import equinox as eqx
 
-import optax
 
-from datasets import Dataset
+from typing import Callable
+from jaxtyping import Array, PRNGKeyArray
 
-from function_encoder.model.base import BaseModel
 from function_encoder.model.mlp import MLP
 
 
 def monte_carlo_integration(G, y):
+    """Compute the coefficients using Monte Carlo integration."""
     F = jnp.einsum("kmd,md->k", G, y)
-    return F / y.shape[0]
+    return F / G.shape[0]
 
 
-def least_squares(G, y, reg=1e-3):
+def least_squares(G, y):
+    """Compute the coefficients using least squares."""
     F = jnp.einsum("kmd,md->k", G, y)
     K = jnp.einsum("kmd,lmd->kl", G, G)
-    K = K.at[jnp.diag_indices_from(K)].add(reg)
-    return jnp.linalg.solve(K, F)
+    coefficients = jnp.linalg.solve(K, F)
+    return coefficients
 
 
-@jax.tree_util.register_pytree_node_class
-class FunctionEncoder(BaseModel):
+class FunctionEncoder(eqx.Module):
+    basis_functions: eqx.nn.MLP
+    coefficients_method: Callable
 
     def __init__(
         self,
-        basis_functions: tuple | None = None,
+        basis_size: int,
         coefficients_method: Callable = least_squares,
-        basis_size: int = 11,
         *args,
-        key: Key | None = None,
-        **kwargs,
+        key: PRNGKeyArray,
+        **kwargs
     ):
 
-        if basis_functions is None and key is not None:
-            # Initialize the basis functions.
-            keys = random.split(key, basis_size)
-            make_mlp = lambda key: MLP(*args, **kwargs, key=key)
-            basis_functions = vmap(make_mlp, out_axes=0)(keys)
+        # Initialize the basis functions
+        keys = random.split(key, basis_size)
+        make_mlp = lambda key: MLP(*args, **kwargs, key=key)
+        self.basis_functions = eqx.filter_vmap(make_mlp)(keys)
 
-        self.basis_functions = basis_functions
         self.coefficients_method = coefficients_method
-        # Internal forward function to vmap over the basis functions.
-        self._forward = vmap(lambda model, x: model(x), in_axes=(0, None))
 
-    def forward(self, X: Array):
-        """Forward pass through the basis functions."""
-        return self._forward(self.basis_functions, X)
+        # self._forward = eqx.filter_vmap(lambda model, x: model(x), in_axes=(eqx.if_array(0), None))
+
+    # def forward(self, X: Array):
+    #     """Forward pass through the basis functions."""
+    #     G = self._forward(self.basis_functions, X)
+    #     return G
 
     def compute_coefficients(self, example_X: Array, example_y: Array):
-        """Compute the coefficients of the basis functions for the given data."""
-        example_G = self.forward(example_X)
-        coefficients = self.coefficients_method(example_G, example_y)
+        """Compute the coefficients."""
+        forward = eqx.filter_vmap(
+            lambda model, x: model(x), in_axes=(eqx.if_array(0), None)
+        )
+        G = forward(self.basis_functions, example_X)
+        coefficients = self.coefficients_method(G, example_y)
         return coefficients
 
     def __call__(self, X: Array, coefficients: Array):
-        """Compute the function approximation."""
-        G = self.forward(X)
-        return jnp.einsum("kmd,k->md", G, coefficients)
-
-    def tree_flatten(self):
-        children = (self.basis_functions,)
-        aux_data = {"coefficients_method": self.coefficients_method}
-        return children, aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls(*children, **aux_data)
-
-
-def train(model, ds, batch_size=10, learning_rate=1e-3):
-
-    opt = optax.chain(
-        optax.clip_by_global_norm(1.0),
-        optax.adam(learning_rate=learning_rate),
-    )
-    opt = optax.MultiSteps(opt, every_k_schedule=batch_size)  # Gradient accumulation
-    opt_state = opt.init(model)
-
-    def loss_fn(model, X, y, example_X, example_y):
-        coefficients = model.compute_coefficients(example_X, example_y)
-        y_pred = model(X, coefficients)
-        return jnp.mean(jnp.linalg.norm(y - y_pred) ** 2)
-
-    @jit
-    def update(model, opt_state, X, y, example_X, example_y):
-        loss, grads = jax.value_and_grad(loss_fn)(model, X, y, example_X, example_y)
-        updates, opt_state = opt.update(grads, opt_state)
-        model = optax.apply_updates(model, updates)
-        return model, opt_state, loss
-
-    for step, point in enumerate(ds):
-
-        X, y, example_X, example_y = (
-            point["X"],
-            point["y"],
-            point["example_X"],
-            point["example_y"],
+        """Evaluate the function encoder."""
+        forward = eqx.filter_vmap(
+            lambda model, x: model(x), in_axes=(eqx.if_array(0), None)
         )
+        G = forward(self.basis_functions, X)
+        y = jnp.einsum("kmd,k->md", G, coefficients)
 
-        model, opt_state, loss = update(model, opt_state, X, y, example_X, example_y)
-
-        if step % 10 == 0:
-            print(f"Step {step}, Loss: {loss}")
-
-    return model
+        return y
