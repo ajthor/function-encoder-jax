@@ -16,7 +16,7 @@ from function_encoder.model.mlp import MLP
 def monte_carlo_integration(G, y):
     """Compute the coefficients using Monte Carlo integration."""
     F = jnp.einsum("kmd,md->k", G, y)
-    return F / G.shape[0]
+    return F / (y.shape[0] ** 2)
 
 
 def least_squares(G, y):
