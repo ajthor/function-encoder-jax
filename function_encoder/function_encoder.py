@@ -1,3 +1,4 @@
+from typing import Callable
 from abc import ABC, abstractmethod
 
 from functools import partial
@@ -7,8 +8,6 @@ import jax.numpy as jnp
 
 import equinox as eqx
 
-
-from typing import Callable
 from jaxtyping import Array, PRNGKeyArray
 
 from function_encoder.model.mlp import MLP
@@ -24,6 +23,7 @@ def least_squares(G, y):
     """Compute the coefficients using least squares."""
     F = jnp.einsum("kmd,md->k", G, y)
     K = jnp.einsum("kmd,lmd->kl", G, G)
+    # K = K.at[jnp.diag_indices_from(K)].add(1 / y.shape[0] ** 2)
     coefficients = jnp.linalg.solve(K, F)
     return coefficients
 
