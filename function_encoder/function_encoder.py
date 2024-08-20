@@ -48,24 +48,18 @@ class FunctionEncoder(eqx.Module):
 
         self.coefficients_method = coefficients_method
 
-        # self._forward = eqx.filter_vmap(lambda model, x: model(x), in_axes=(eqx.if_array(0), None))
-
-    # def forward(self, X: Array):
-    #     """Forward pass through the basis functions."""
-    #     G = self._forward(self.basis_functions, X)
-    #     return G
-
     def compute_coefficients(self, example_X: Array, example_y: Array):
-        """Compute the coefficients."""
+        """Compute the coefficients of the basis functions for the given data."""
         forward = eqx.filter_vmap(
             lambda model, x: model(x), in_axes=(eqx.if_array(0), None)
         )
         G = forward(self.basis_functions, example_X)
         coefficients = self.coefficients_method(G, example_y)
+
         return coefficients
 
     def __call__(self, X: Array, coefficients: Array):
-        """Evaluate the function encoder."""
+        """Compute the function approximation."""
         forward = eqx.filter_vmap(
             lambda model, x: model(x), in_axes=(eqx.if_array(0), None)
         )

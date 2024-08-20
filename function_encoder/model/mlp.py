@@ -9,8 +9,9 @@ import equinox as eqx
 
 class MLP(eqx.Module):
     params: tuple
+    activation_function: callable = jnp.tanh
 
-    def __init__(self, layer_sizes, *, key: Key):
+    def __init__(self, layer_sizes, activation_function, *, key: Key):
 
         params = []
 
@@ -33,13 +34,14 @@ class MLP(eqx.Module):
         params.append((w,))
 
         self.params = tuple(params)
+        self.activation_function = activation_function
 
     def __call__(self, X):
         """Forward pass."""
 
         for w, b in self.params[:-1]:
             y = jnp.dot(X, w) + b
-            X = jnp.tanh(y)
+            X = self.activation_function(y)
 
         (w,) = self.params[-1]
 
