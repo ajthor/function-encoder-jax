@@ -11,28 +11,32 @@ from datasets import Dataset
 
 import optax
 
+from sklearn.gaussian_process.kernels import RBF
+from sklearn.gaussian_process import GaussianProcessRegressor
+
 from function_encoder.function_encoder import FunctionEncoder
 
 import matplotlib.pyplot as plt
 
 rng = random.PRNGKey(0)
 
-
-def random_polynomial(key, degree=3):
-    coefficients = random.uniform(key, (degree + 1,), minval=-1, maxval=1)
-    return coefficients
+kernel = RBF(length_scale=0.2)
+gp = GaussianProcessRegressor(kernel=kernel)
 
 
 def generate_data(key):
-    c_key, x_key, example_key = random.split(key, 3)
+    x_key, example_key = random.split(key)
 
-    c = random_polynomial(c_key)
+    X = random.uniform(x_key, (200, 1), minval=-1, maxval=1)
+    y = gp.sample_y(X[:, jnp.newaxis])
 
-    X = random.uniform(x_key, (100, 1), minval=-1, maxval=1)
-    y = jnp.polyval(c, X)
+    idx = random.choice(example_key, X.shape[0], (100,), replace=False)
 
-    example_X = random.uniform(example_key, (10, 1), minval=-1, maxval=1)
-    example_y = jnp.polyval(c, example_X)
+    X = X[~idx]
+    y = y[~idx]
+
+    example_X = X[idx]
+    example_y = y[idx]
 
     return {"X": X, "y": y, "example_X": example_X, "example_y": example_y}
 
