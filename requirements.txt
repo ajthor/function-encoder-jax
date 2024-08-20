@@ -1,5 +1,7 @@
 chex
 datasets
+diffrax
+equinox
 jax
 jaxlib
 matplotlib

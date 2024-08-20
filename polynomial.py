@@ -1,4 +1,7 @@
 import jax
+
+jax.config.update("jax_enable_x64", True)
+
 from jax import random, tree_util
 import jax.numpy as jnp
 
@@ -20,29 +23,36 @@ def random_polynomial(key, degree=3):
     return coefficients
 
 
-def data_generator():
-    n_functions = 1000
+def generate_data(key):
+    c_key, x_key, example_key = random.split(key, 3)
 
-    for i in range(n_functions):
-        key, coefficients_key, x_key, example_key = random.split(rng, 4)
+    c = random_polynomial(c_key)
 
-        coefficients = random_polynomial(coefficients_key)
+    x = random.uniform(x_key, (100, 1), minval=-1, maxval=1)
+    y = jnp.polyval(c, x)
 
-        x = random.uniform(x_key, (100, 1), minval=-1, maxval=1)
-        y = jnp.polyval(coefficients, x)
+    example_x = random.uniform(example_key, (10, 1), minval=-1, maxval=1)
+    example_y = jnp.polyval(c, example_x)
 
-        example_x = random.uniform(example_key, (10, 1), minval=-1, maxval=1)
-        example_y = jnp.polyval(coefficients, example_x)
-
-        yield {"x": x, "y": y, "example_X": example_x, "example_y": example_y}
+    return {"x": x, "y": y, "example_X": example_x, "example_y": example_y}
 
 
-ds = Dataset.from_generator(data_generator)
+n_functions = 1000
+rng, key = random.split(rng)
+keys = random.split(key, n_functions)
+
+# vmap
+data = jax.vmap(generate_data)(keys)
+
+ds = Dataset.from_dict(data)
 ds = ds.to_iterable_dataset()
 ds = ds.with_format("jax")
 
+rng, key = random.split(rng)
 
-fe = FunctionEncoder(basis_size=8, layer_sizes=(1, 32, 1), key=rng)
+model = FunctionEncoder(
+    basis_size=8, layer_sizes=(1, 32, 1), activation_function=jax.nn.tanh, key=key
+)
 
 
 opt = optax.chain(
@@ -50,13 +60,13 @@ opt = optax.chain(
     optax.adam(1e-3),
 )
 opt = optax.MultiSteps(opt, every_k_schedule=10)  # Gradient accumulation
-opt_state = opt.init(eqx.filter(fe, eqx.is_inexact_array))
+opt_state = opt.init(eqx.filter(model, eqx.is_inexact_array))
 
 
-def loss_fn(fe, X, y, example_X, example_y):
-    coefficients = fe.compute_coefficients(example_X, example_y)
-    y_pred = fe(X, coefficients)
+def loss_fn(model, X, y, example_X, example_y):
+    coefficients = model.compute_coefficients(example_X, example_y)
 
+    y_pred = model(X, coefficients)
     pred_error = y - y_pred
     pred_loss = jnp.mean(jnp.linalg.norm(pred_error, axis=-1) ** 2)
 
@@ -64,17 +74,13 @@ def loss_fn(fe, X, y, example_X, example_y):
 
 
 @eqx.filter_jit
-def update(fe, X, y, example_X, example_y, opt_state):
-    loss, grads = eqx.filter_value_and_grad(loss_fn)(fe, X, y, example_X, example_y)
-
-    # If something breaks, i.e. nan, pass
-    if not jnp.isfinite(loss):
-        pass
+def update(model, X, y, example_X, example_y, opt_state):
+    loss, grads = eqx.filter_value_and_grad(loss_fn)(model, X, y, example_X, example_y)
 
     updates, opt_state = opt.update(grads, opt_state)
-    fe = eqx.apply_updates(fe, updates)
+    model = eqx.apply_updates(model, updates)
 
-    return fe, opt_state, loss
+    return model, opt_state, loss
 
 
 for i, point in enumerate(ds):
@@ -84,7 +90,7 @@ for i, point in enumerate(ds):
         point["example_X"],
         point["example_y"],
     )
-    fe, opt_state, loss = update(fe, X, y, example_X, example_y, opt_state)
+    model, opt_state, loss = update(model, X, y, example_X, example_y, opt_state)
 
     if i % 10 == 0:
         print(f"Loss: {loss}")
@@ -102,8 +108,8 @@ y = jnp.polyval(C, x)
 example_x = random.uniform(example_key, (10, 1), minval=-1, maxval=1)
 example_y = jnp.polyval(C, example_x)
 
-coefficients = fe.compute_coefficients(example_x, example_y)
-y_pred = fe(x, coefficients)
+coefficients = model.compute_coefficients(example_x, example_y)
+y_pred = model(x, coefficients)
 
 fig = plt.figure()
 ax = fig.add_subplot(111)
