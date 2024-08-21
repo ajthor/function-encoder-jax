@@ -7,56 +7,27 @@ import jax.numpy as jnp
 
 import equinox as eqx
 
-from datasets import Dataset
+from datasets import Dataset, load_dataset
 
 import optax
-
-from sklearn.gaussian_process.kernels import RBF
-from sklearn.gaussian_process import GaussianProcessRegressor
 
 from function_encoder.function_encoder import FunctionEncoder
 
 import matplotlib.pyplot as plt
 
-rng = random.PRNGKey(0)
 
-kernel = RBF(length_scale=0.2)
-gp = GaussianProcessRegressor(kernel=kernel)
-
-
-def generate_data(key):
-    x_key, example_key = random.split(key)
-
-    X = random.uniform(x_key, (200, 1), minval=-1, maxval=1)
-    y = gp.sample_y(X[:, jnp.newaxis])
-
-    idx = random.choice(example_key, X.shape[0], (100,), replace=False)
-
-    X = X[~idx]
-    y = y[~idx]
-
-    example_X = X[idx]
-    example_y = y[idx]
-
-    return {"X": X, "y": y, "example_X": example_X, "example_y": example_y}
-
-
-n_functions = 2000
-rng, key = random.split(rng)
-keys = random.split(key, n_functions)
-
-data = jax.vmap(generate_data)(keys)
-
-ds = Dataset.from_dict(data)
-ds = ds.to_iterable_dataset()
+ds = load_dataset("ajthor/polynomial")
 ds = ds.with_format("jax")
 
+rng = random.PRNGKey(0)
 rng, key = random.split(rng)
 
 model = FunctionEncoder(
-    basis_size=8, layer_sizes=(1, 32, 1), activation_function=jax.nn.tanh, key=key
+    basis_size=8,
+    layer_sizes=(1, 32, 1),
+    activation_function=jax.nn.tanh,
+    key=key,
 )
-
 
 # Train
 
@@ -89,13 +60,9 @@ def update(model, X, y, example_X, example_y, opt_state):
     return model, opt_state, loss
 
 
-for i, point in enumerate(ds):
-    X, y, example_X, example_y = (
-        point["X"],
-        point["y"],
-        point["example_X"],
-        point["example_y"],
-    )
+for i, point in enumerate(ds["train"].take(1000)):
+    X, y = (point["X"], point["y"])
+    example_X, example_y = (X, y)
     model, opt_state, loss = update(model, X, y, example_X, example_y, opt_state)
 
     if i % 10 == 0:
@@ -105,14 +72,16 @@ for i, point in enumerate(ds):
 # Plot
 
 
-rng, coefficients_key, example_key = random.split(rng, 3)
-C = random_polynomial(coefficients_key)
+point = ds["train"].take(1)[0]
 
-X = jnp.linspace(-1, 1, 1000).reshape(-1, 1)
-y = jnp.polyval(C, X)
+X = point["X"]
+y = point["y"]
+example_X = X
+example_y = y
 
-example_X = random.uniform(example_key, (10, 1), minval=-1, maxval=1)
-example_y = jnp.polyval(C, example_X)
+idx = jnp.argsort(X, axis=0).flatten()
+X = X[idx]
+y = y[idx]
 
 coefficients = model.compute_coefficients(example_X, example_y)
 y_pred = model(X, coefficients)

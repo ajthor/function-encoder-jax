@@ -1,9 +1,6 @@
 from typing import Callable
-from abc import ABC, abstractmethod
 
-from functools import partial
-
-from jax import jit, vmap, random, value_and_grad, tree_util
+from jax import random
 import jax.numpy as jnp
 
 import equinox as eqx
