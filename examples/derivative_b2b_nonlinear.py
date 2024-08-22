@@ -5,17 +5,17 @@ jax.config.update("jax_enable_x64", True)
 from jax import random
 import jax.numpy as jnp
 
+from datasets import load_dataset, Dataset
+
 import equinox as eqx
-
-from datasets import Dataset, load_dataset
-
 import optax
 
 from function_encoder.model.mlp import MLP
 from function_encoder.function_encoder import FunctionEncoder, train_function_encoder
-from function_encoder.operator_encoder import train_operator_encoder
 
 import matplotlib.pyplot as plt
+
+import tqdm
 
 
 ds = load_dataset("ajthor/derivative")
@@ -39,6 +39,12 @@ target_encoder = FunctionEncoder(
     key=target_key,
 )
 
+operator = MLP(
+    layer_sizes=(8, 32, 8),
+    activation_function=jax.nn.tanh,
+    key=operator_key,
+)
+
 
 # Train
 
@@ -50,9 +56,9 @@ def source_loss_function(model, point):
     return optax.l2_loss(point["f"], f_pred).mean()
 
 
-source_encoder = train_function_encoder(
-    source_encoder, ds["train"].take(1000), source_loss_function
-)
+# source_encoder = train_function_encoder(
+#     source_encoder, ds["train"].take(1000), source_loss_function
+# )
 
 
 # Train the target encoder.
@@ -62,21 +68,54 @@ def target_loss_function(model, point):
     return optax.l2_loss(point["Tf"], Tf_pred).mean()
 
 
-target_encoder = train_function_encoder(
-    target_encoder, ds["train"].take(1000), target_loss_function
-)
+# target_encoder = train_function_encoder(
+#     target_encoder, ds["train"].take(1000), target_loss_function
+# )
 
 # Train the operator.
 ds_subset = ds["train"].take(1000)
 
-source_coefficients = jax.vmap(source_encoder.compute_coefficients)(
+source_coefficients = eqx.filter_vmap(source_encoder.compute_coefficients)(
     ds_subset["X"], ds_subset["f"]
 )
-target_coefficients = jax.vmap(target_encoder.compute_coefficients)(
+target_coefficients = eqx.filter_vmap(target_encoder.compute_coefficients)(
     ds_subset["Y"], ds_subset["Tf"]
 )
 
-operator = jnp.linalg.lstsq(source_coefficients, target_coefficients)[0]
+operator_ds = Dataset.from_dict(
+    {
+        "X": source_coefficients,
+        "Y": target_coefficients,
+    }
+)
+
+
+def operator_loss_function(model, point):
+    target_coefficients_pred = model(point["X"])
+    return optax.l2_loss(point["Y"], target_coefficients_pred).mean()
+
+
+opt = optax.chain(
+    optax.clip_by_global_norm(1.0),
+    optax.adam(learning_rate=1e-3),
+)
+opt_state = opt.init(eqx.filter(operator, eqx.is_inexact_array))
+
+
+@eqx.filter_jit
+def update(model, point, opt_state):
+    loss, grads = eqx.filter_value_and_grad(operator_loss_function)(model, point)
+    updates, opt_state = opt.update(grads, opt_state)
+    model = eqx.apply_updates(model, updates)
+    return model, opt_state, loss
+
+
+with tqdm.tqdm(enumerate(operator_ds), total=operator_ds.num_rows) as tqdm_bar:
+    for i, point in tqdm_bar:
+        operator, opt_state, loss = update(operator, point, opt_state)
+
+        if i % 10 == 0:
+            tqdm_bar.set_postfix_str(f"Loss: {loss:.2e}")
 
 
 # Plot
