@@ -32,7 +32,6 @@ model = FunctionEncoder(
 
 
 def loss_function(model, point):
-    # Compute the forward pass.
     coefficients = model.compute_coefficients(point["X"], point["y"][:, None])
     y_pred = model(point["X"], coefficients)
     return optax.l2_loss(point["y"][:, None], y_pred).mean()

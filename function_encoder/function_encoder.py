@@ -21,8 +21,8 @@ def monte_carlo_integration(G: Array, y: Array):
 
 def least_squares(G: Array, y: Array):
     """Compute the coefficients using least squares."""
-    F = jnp.einsum("kmd,md->k", G, y)
-    K = jnp.einsum("kmd,lmd->kl", G, G)
+    F = jnp.einsum("kmd,md->k", G, y) / y.shape[0]
+    K = jnp.einsum("kmd,lmd->kl", G, G) / y.shape[0]
     # K = K.at[jnp.diag_indices_from(K)].add(1 / y.shape[0] ** 2)
     coefficients = jnp.linalg.solve(K, F)
     return coefficients

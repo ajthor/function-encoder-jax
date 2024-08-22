@@ -40,7 +40,7 @@ target_encoder = FunctionEncoder(
 )
 
 operator = MLP(
-    layer_sizes=(8, 32, 8),
+    layer_sizes=(8, 32, 32, 8),
     activation_function=jax.nn.tanh,
     key=operator_key,
 )
@@ -72,27 +72,15 @@ def target_loss_function(model, point):
 #     target_encoder, ds["train"].take(1000), target_loss_function
 # )
 
+
 # Train the operator.
-ds_subset = ds["train"].take(1000)
-
-source_coefficients = eqx.filter_vmap(source_encoder.compute_coefficients)(
-    ds_subset["X"], ds_subset["f"]
-)
-target_coefficients = eqx.filter_vmap(target_encoder.compute_coefficients)(
-    ds_subset["Y"], ds_subset["Tf"]
-)
-
-operator_ds = Dataset.from_dict(
-    {
-        "X": source_coefficients,
-        "Y": target_coefficients,
-    }
-)
 
 
 def operator_loss_function(model, point):
-    target_coefficients_pred = model(point["X"])
-    return optax.l2_loss(point["Y"], target_coefficients_pred).mean()
+    source_coefficients = source_encoder.compute_coefficients(point["X"], point["f"])
+    target_coefficients_pred = model(source_coefficients)
+    target_coefficients = target_encoder.compute_coefficients(point["Y"], point["Tf"])
+    return optax.l2_loss(target_coefficients, target_coefficients_pred).mean()
 
 
 opt = optax.chain(
@@ -110,7 +98,7 @@ def update(model, point, opt_state):
     return model, opt_state, loss
 
 
-with tqdm.tqdm(enumerate(operator_ds), total=operator_ds.num_rows) as tqdm_bar:
+with tqdm.tqdm(enumerate(ds["train"]), total=ds["train"].num_rows) as tqdm_bar:
     for i, point in tqdm_bar:
         operator, opt_state, loss = update(operator, point, opt_state)
 
@@ -123,7 +111,7 @@ with tqdm.tqdm(enumerate(operator_ds), total=operator_ds.num_rows) as tqdm_bar:
 point = ds["train"].take(1)[0]
 
 source_coefficients = source_encoder.compute_coefficients(point["X"], point["f"])
-target_coefficients = jnp.dot(source_coefficients, operator)
+target_coefficients = operator(source_coefficients)
 Tf_pred = target_encoder(point["Y"], target_coefficients)
 
 fig = plt.figure()

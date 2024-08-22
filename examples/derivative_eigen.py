@@ -42,7 +42,7 @@ def loss_function(model, point):
     return optax.l2_loss(point["Tf"], Tf_pred).mean()
 
 
-model = train_operator_encoder(model, ds["train"], loss_function)
+model = train_operator_encoder(model, ds["train"].take(5000), loss_function)
 
 # Plot
 

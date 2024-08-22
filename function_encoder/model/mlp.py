@@ -15,7 +15,7 @@ class MLP(eqx.Module):
 
         params = []
 
-        C = jnp.sqrt(layer_sizes[0])
+        C = jnp.sqrt(1 / layer_sizes[0])
 
         # Initialize the parameters
         for n_in, n_out in zip(layer_sizes[:-2], layer_sizes[1:-1]):
