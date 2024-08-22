@@ -4,100 +4,72 @@ from jax import random
 import jax.numpy as jnp
 
 import equinox as eqx
+import optax
 
 from jaxtyping import Array, PRNGKeyArray
 
 from function_encoder.model.mlp import MLP
 from function_encoder.function_encoder import FunctionEncoder
 
-
-# class OperatorEncoder(eqx.Module):
-#     source_model: FunctionEncoder
-#     target_model: FunctionEncoder
-
-#     operator_model: eqx.Module
-
-#     def __init__(
-#         self,
-#         source_model: FunctionEncoder,
-#         target_model: FunctionEncoder,
-#         operator_model: eqx.Module,
-#         key,
-#     ):
-#         self.source_model = source_model
-#         self.target_model = target_model
-#         self.operator_model = operator_model
-
-#     def compute_coefficients(self, example_X: Array, example_y: Array):
-#         coefficients_source = self.source_model.compute_coefficients(
-#             example_X, example_y
-#         )
-#         coefficients_target = self.operator_model(coefficients_source)
-#         return coefficients_target
-
-#     def __call__(self, X: Array, coefficients: Array):
-#         return self.target_model(X, coefficients)
+import tqdm
 
 
-class OperatorEncoder(eqx.Module):
-    source_model: FunctionEncoder
-    target_model: FunctionEncoder
-
-    operator: MLP
+class EigenOperatorEncoder(eqx.Module):
+    function_encoder: FunctionEncoder
+    eigenvalues: Array
 
     def __init__(
         self,
-        source_config: Mapping,
-        target_config: Mapping,
-        operator_config: Mapping,
+        basis_size: int,
         *args,
         key: PRNGKeyArray,
-        **kwargs
+        **kwargs,
     ):
-        source_key, target_key, operator_key = random.split(key, 3)
-        self.source_model = FunctionEncoder(**source_config, key=source_key)
-        self.target_model = FunctionEncoder(**target_config, key=target_key)
-        self.operator = MLP(**operator_config, key=operator_key)
+        fe_key, eig_key = random.split(key, 2)
+
+        self.function_encoder = FunctionEncoder(
+            basis_size=basis_size, *args, key=fe_key, **kwargs
+        )
+
+        self.eigenvalues = random.uniform(eig_key, (basis_size,))
 
     def compute_coefficients(self, example_X: Array, example_y: Array):
-        coefficients_source = self.source_model.compute_coefficients(
-            example_X, example_y
-        )
-        coefficients_target = self.operator(coefficients_source)
-        return coefficients_target
+        """Compute the coefficients of the basis functions for the given data."""
+        coefficients = self.function_encoder.compute_coefficients(example_X, example_y)
+        return coefficients * self.eigenvalues
 
     def __call__(self, X: Array, coefficients: Array):
-        return self.target_model(X, coefficients)
+        """Forward pass."""
+        return self.function_encoder(X, coefficients)
 
 
-class LinearOperatorEncoder(eqx.Module):
-    source_model: FunctionEncoder
-    target_model: FunctionEncoder
+def train_operator_encoder(
+    model: eqx.Module,
+    ds,
+    loss_function: Callable,
+    learning_rate: float = 1e-3,
+    gradient_accumulation_steps: int = 10,
+):
+    opt = optax.chain(
+        optax.clip_by_global_norm(1.0),
+        optax.adam(learning_rate=learning_rate),
+    )
+    # Gradient accumulation
+    opt = optax.MultiSteps(opt, every_k_schedule=gradient_accumulation_steps)
+    opt_state = opt.init(eqx.filter(model, eqx.is_inexact_array))
 
-    operator: Array
+    @eqx.filter_jit
+    def update(model, point, opt_state):
+        loss, grads = eqx.filter_value_and_grad(loss_function)(model, point)
+        updates, opt_state = opt.update(grads, opt_state)
+        model = eqx.apply_updates(model, updates)
+        return model, opt_state, loss
 
-    def __init__(
-        self,
-        source_config: Mapping,
-        target_config: Mapping,
-        *args,
-        key: PRNGKeyArray,
-        **kwargs
-    ):
+    with tqdm.tqdm(enumerate(ds), total=ds.num_rows) as tqdm_bar:
+        for i, point in tqdm_bar:
+            model, opt_state, loss = update(model, point, opt_state)
 
-        source_key, target_key, operator_key = random.split(key, 3)
-        self.source_model = FunctionEncoder(**source_config, key=source_key)
-        self.target_model = FunctionEncoder(**target_config, key=target_key)
-        self.operator = random.normal(
-            operator_key, (source_config["basis_size"], target_config["basis_size"])
-        )
+            if i % 10 == 0:
+                tqdm_bar.set_postfix_str(f"Loss: {loss:.2e}")
 
-    def compute_coefficients(self, example_X: Array, example_y: Array):
-        coefficients_source = self.source_model.compute_coefficients(
-            example_X, example_y
-        )
-        coefficients_target = jnp.dot(coefficients_source, self.operator)
-        return coefficients_target
-
-    def __call__(self, X: Array, coefficients: Array):
-        return self.target_model(X, coefficients)
+    return model

@@ -5,20 +5,17 @@ jax.config.update("jax_enable_x64", True)
 from jax import random
 import jax.numpy as jnp
 
+from datasets import load_dataset
+
 import equinox as eqx
-
-from datasets import Dataset, load_dataset
-
 import optax
 
-from function_encoder.model.mlp import MLP
 from function_encoder.function_encoder import FunctionEncoder, train_function_encoder
-from function_encoder.operator_encoder import train_operator_encoder
 
 import matplotlib.pyplot as plt
 
 
-ds = load_dataset("ajthor/antiderivative")
+ds = load_dataset("ajthor/derivative")
 ds = ds.with_format("jax")
 
 rng = random.PRNGKey(0)
@@ -69,10 +66,10 @@ target_encoder = train_function_encoder(
 # Train the operator.
 ds_subset = ds["train"].take(1000)
 
-source_coefficients = jax.vmap(source_encoder.compute_coefficients)(
+source_coefficients = eqx.filter_vmap(source_encoder.compute_coefficients)(
     ds_subset["X"], ds_subset["f"]
 )
-target_coefficients = jax.vmap(target_encoder.compute_coefficients)(
+target_coefficients = eqx.filter_vmap(target_encoder.compute_coefficients)(
     ds_subset["Y"], ds_subset["Tf"]
 )
 
