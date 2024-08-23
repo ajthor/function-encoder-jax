@@ -4,6 +4,7 @@ diffrax
 equinox
 jax
 jaxlib
+lineax
 matplotlib
 numpy
 optax

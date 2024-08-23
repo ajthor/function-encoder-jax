@@ -42,9 +42,9 @@ target_encoder = FunctionEncoder(
 
 # Train the source encoder.
 def source_loss_function(model, point):
-    coefficients = model.compute_coefficients(point["X"], point["f"])
-    f_pred = model(point["X"], coefficients)
-    return optax.l2_loss(point["f"], f_pred).mean()
+    coefficients = model.compute_coefficients(point["X"][:, None], point["f"][:, None])
+    f_pred = model(point["X"][:, None], coefficients)
+    return optax.l2_loss(point["f"][:, None], f_pred).mean()
 
 
 source_encoder = train_function_encoder(
@@ -54,9 +54,9 @@ source_encoder = train_function_encoder(
 
 # Train the target encoder.
 def target_loss_function(model, point):
-    coefficients = model.compute_coefficients(point["Y"], point["Tf"])
-    Tf_pred = model(point["Y"], coefficients)
-    return optax.l2_loss(point["Tf"], Tf_pred).mean()
+    coefficients = model.compute_coefficients(point["Y"][:, None], point["Tf"][:, None])
+    Tf_pred = model(point["Y"][:, None], coefficients)
+    return optax.l2_loss(point["Tf"][:, None], Tf_pred).mean()
 
 
 target_encoder = train_function_encoder(
@@ -64,13 +64,13 @@ target_encoder = train_function_encoder(
 )
 
 # Train the operator.
-ds_subset = ds["train"].take(1000)
+ds_subset = ds["train"].take(100)
 
 source_coefficients = eqx.filter_vmap(source_encoder.compute_coefficients)(
-    ds_subset["X"], ds_subset["f"]
+    ds_subset["X"][:, :, None], ds_subset["f"][:, :, None]
 )
 target_coefficients = eqx.filter_vmap(target_encoder.compute_coefficients)(
-    ds_subset["Y"], ds_subset["Tf"]
+    ds_subset["Y"][:, :, None], ds_subset["Tf"][:, :, None]
 )
 
 operator = jnp.linalg.lstsq(source_coefficients, target_coefficients)[0]
@@ -80,14 +80,20 @@ operator = jnp.linalg.lstsq(source_coefficients, target_coefficients)[0]
 
 point = ds["train"].take(1)[0]
 
-source_coefficients = source_encoder.compute_coefficients(point["X"], point["f"])
+source_coefficients = source_encoder.compute_coefficients(
+    point["X"][:, None], point["f"][:, None]
+)
 target_coefficients = jnp.dot(source_coefficients, operator)
-Tf_pred = target_encoder(point["Y"], target_coefficients)
+Tf_pred = target_encoder(point["Y"][:, None], target_coefficients)
 
 fig = plt.figure()
 ax = fig.add_subplot(111)
 
+ax.plot(point["X"], point["f"], label="Original")
+ax.scatter(point["X"], point["f"], label="Data", color="red")
+
 ax.plot(point["Y"], point["Tf"], label="True")
 ax.plot(point["Y"], Tf_pred, label="Predicted")
 
+ax.legend()
 plt.show()
