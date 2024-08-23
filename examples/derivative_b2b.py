@@ -64,7 +64,7 @@ target_encoder = train_function_encoder(
 )
 
 # Train the operator.
-ds_subset = ds["train"].take(100)
+ds_subset = ds["train"].take(1000)
 
 source_coefficients = eqx.filter_vmap(source_encoder.compute_coefficients)(
     ds_subset["X"][:, :, None], ds_subset["f"][:, :, None]
@@ -80,20 +80,31 @@ operator = jnp.linalg.lstsq(source_coefficients, target_coefficients)[0]
 
 point = ds["train"].take(1)[0]
 
-source_coefficients = source_encoder.compute_coefficients(
-    point["X"][:, None], point["f"][:, None]
-)
+X = point["X"][:, None]
+f = point["f"][:, None]
+Y = point["Y"][:, None]
+Tf = point["Tf"][:, None]
+
+source_coefficients = source_encoder.compute_coefficients(X, f)
 target_coefficients = jnp.dot(source_coefficients, operator)
-Tf_pred = target_encoder(point["Y"][:, None], target_coefficients)
+Tf_pred = target_encoder(Y, target_coefficients)
 
 fig = plt.figure()
 ax = fig.add_subplot(111)
 
-ax.plot(point["X"], point["f"], label="Original")
-ax.scatter(point["X"], point["f"], label="Data", color="red")
+idx = jnp.argsort(X, axis=0).flatten()
+X = X[idx]
+f = f[idx]
 
-ax.plot(point["Y"], point["Tf"], label="True")
-ax.plot(point["Y"], Tf_pred, label="Predicted")
+idx = jnp.argsort(Y, axis=0).flatten()
+Y = Y[idx]
+Tf = Tf[idx]
+
+ax.plot(X, f, label="Original")
+ax.scatter(X, f, label="Data", color="red")
+
+ax.plot(Y, Tf, label="True")
+ax.plot(Y, Tf_pred, label="Predicted")
 
 ax.legend()
 plt.show()

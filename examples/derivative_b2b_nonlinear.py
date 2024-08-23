@@ -11,6 +11,7 @@ import equinox as eqx
 import optax
 
 from function_encoder.model.mlp import MLP
+from function_encoder.losses import gram_orthogonality_loss
 from function_encoder.function_encoder import FunctionEncoder, train_function_encoder
 
 import matplotlib.pyplot as plt
@@ -40,7 +41,7 @@ target_encoder = FunctionEncoder(
 )
 
 operator = MLP(
-    layer_sizes=(8, 32, 32, 8),
+    layer_sizes=(8, 64, 64, 8),
     activation_function=jax.nn.tanh,
     key=operator_key,
 )
@@ -51,42 +52,51 @@ operator = MLP(
 
 # Train the source encoder.
 def source_loss_function(model, point):
-    coefficients = model.compute_coefficients(point["X"], point["f"])
-    f_pred = model(point["X"], coefficients)
-    return optax.l2_loss(point["f"], f_pred).mean()
+    coefficients = model.compute_coefficients(point["X"][:, None], point["f"][:, None])
+    f_pred = model(point["X"][:, None], coefficients)
+    pred_loss = optax.l2_loss(f_pred, point["f"][:, None]).mean()
+    # gram_loss = gram_orthogonality_loss(model.compute_gram_matrix(point["X"][:, None]))
+    return pred_loss  # + gram_loss
 
 
-# source_encoder = train_function_encoder(
-#     source_encoder, ds["train"].take(1000), source_loss_function
-# )
+source_encoder = train_function_encoder(
+    source_encoder, ds["train"].take(1000), source_loss_function
+)
 
 
 # Train the target encoder.
 def target_loss_function(model, point):
-    coefficients = model.compute_coefficients(point["Y"], point["Tf"])
-    Tf_pred = model(point["Y"], coefficients)
-    return optax.l2_loss(point["Tf"], Tf_pred).mean()
+    coefficients = model.compute_coefficients(point["Y"][:, None], point["Tf"][:, None])
+    Tf_pred = model(point["Y"][:, None], coefficients)
+    pred_loss = optax.l2_loss(Tf_pred, point["Tf"][:, None]).mean()
+    # gram_loss = gram_orthogonality_loss(model.compute_gram_matrix(point["Y"][:, None]))
+    return pred_loss  # + gram_loss
 
 
-# target_encoder = train_function_encoder(
-#     target_encoder, ds["train"].take(1000), target_loss_function
-# )
+target_encoder = train_function_encoder(
+    target_encoder, ds["train"].take(1000), target_loss_function
+)
 
 
 # Train the operator.
 
 
 def operator_loss_function(model, point):
-    source_coefficients = source_encoder.compute_coefficients(point["X"], point["f"])
+    source_coefficients = source_encoder.compute_coefficients(
+        point["X"][:, None], point["f"][:, None]
+    )
     target_coefficients_pred = model(source_coefficients)
-    target_coefficients = target_encoder.compute_coefficients(point["Y"], point["Tf"])
-    return optax.l2_loss(target_coefficients, target_coefficients_pred).mean()
+    target_coefficients = target_encoder.compute_coefficients(
+        point["Y"][:, None], point["Tf"][:, None]
+    )
+    return optax.squared_error(target_coefficients_pred, target_coefficients).mean()
 
 
 opt = optax.chain(
     optax.clip_by_global_norm(1.0),
     optax.adam(learning_rate=1e-3),
 )
+opt = optax.MultiSteps(opt, every_k_schedule=50)
 opt_state = opt.init(eqx.filter(operator, eqx.is_inexact_array))
 
 
@@ -110,14 +120,31 @@ with tqdm.tqdm(enumerate(ds["train"]), total=ds["train"].num_rows) as tqdm_bar:
 
 point = ds["train"].take(1)[0]
 
-source_coefficients = source_encoder.compute_coefficients(point["X"], point["f"])
+X = point["X"][:, None]
+f = point["f"][:, None]
+Y = point["Y"][:, None]
+Tf = point["Tf"][:, None]
+
+source_coefficients = source_encoder.compute_coefficients(X, f)
 target_coefficients = operator(source_coefficients)
-Tf_pred = target_encoder(point["Y"], target_coefficients)
+Tf_pred = target_encoder(Y, target_coefficients)
 
 fig = plt.figure()
 ax = fig.add_subplot(111)
 
-ax.plot(point["Y"], point["Tf"], label="True")
-ax.plot(point["Y"], Tf_pred, label="Predicted")
+idx = jnp.argsort(X, axis=0).flatten()
+X = X[idx]
+f = f[idx]
 
+idx = jnp.argsort(Y, axis=0).flatten()
+Y = Y[idx]
+Tf = Tf[idx]
+
+ax.plot(X, f, label="Original")
+ax.scatter(X, f, label="Data", color="red")
+
+ax.plot(Y, Tf, label="True")
+ax.plot(Y, Tf_pred, label="Predicted")
+
+ax.legend()
 plt.show()
