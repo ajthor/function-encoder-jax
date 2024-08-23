@@ -11,25 +11,25 @@ import diffrax
 from function_encoder.model.mlp import MLP
 
 
-class _dynamics(eqx.Module):
-    mlp: MLP
+# class Dynamics(eqx.Module):
+#     mlp: MLP
 
-    def __init__(self, *args, **kwargs):
-        self.mlp = MLP(*args, **kwargs)
+#     def __init__(self, *args, **kwargs):
+#         self.mlp = MLP(*args, **kwargs)
 
-    def __call__(self, t, x):
-        return self.mlp(x)
+#     def __call__(self, t, x):
+#         return self.mlp(x)
 
 
 class NeuralODE(eqx.Module):
-    dynamics: _dynamics
+    dynamics: MLP
 
     def __init__(self, *args, **kwargs):
-        self.dynamics = _dynamics(*args, **kwargs)
+        self.dynamics = MLP(*args, **kwargs)
 
     def __call__(self, ts, y0):
         solution = diffrax.diffeqsolve(
-            diffrax.ODETerm(self.dynamics),
+            diffrax.ODETerm(lambda t, y: self.dynamics(y)),
             diffrax.Tsit5(),
             t0=ts[0],
             t1=ts[-1],

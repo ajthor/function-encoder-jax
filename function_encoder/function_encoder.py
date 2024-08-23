@@ -38,11 +38,18 @@ def least_squares(G: Array, y: Array):
 
 
 class BasisFunctions(eqx.Module):
-    basis_functions: eqx.nn.MLP
+    basis_functions: eqx.Module
 
-    def __init__(self, basis_size: int, *args, key: PRNGKeyArray, **kwargs):
+    def __init__(
+        self,
+        basis_size: int,
+        *args,
+        basis_type: type = MLP,
+        key: PRNGKeyArray,
+        **kwargs,
+    ):
         keys = random.split(key, basis_size)
-        make_mlp = lambda key: MLP(*args, **kwargs, key=key)
+        make_mlp = lambda key: basis_type(*args, **kwargs, key=key)
         self.basis_functions = eqx.filter_vmap(make_mlp)(keys)
 
     def __call__(self, X):
