@@ -27,7 +27,9 @@ class NeuralODE(eqx.Module):
     def __init__(self, *args, **kwargs):
         self.dynamics = MLP(*args, **kwargs)
 
-    def __call__(self, ts, y0):
+    def __call__(self, y0_and_time: tuple):
+        y0, ts = y0_and_time
+
         solution = diffrax.diffeqsolve(
             diffrax.ODETerm(lambda t, y: self.dynamics(y)),
             diffrax.Tsit5(),
