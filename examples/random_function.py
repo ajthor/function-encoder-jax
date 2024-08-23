@@ -5,18 +5,21 @@ jax.config.update("jax_enable_x64", True)
 from jax import random
 import jax.numpy as jnp
 
-import equinox as eqx
 import optax
 
-from datasets import Dataset, load_dataset
+from datasets import load_dataset
 
 from function_encoder.function_encoder import FunctionEncoder, train_function_encoder
 
 import matplotlib.pyplot as plt
 
+# Load dataset
 
 ds = load_dataset("ajthor/random_function")
 ds = ds.with_format("jax")
+
+
+# Create model
 
 rng = random.PRNGKey(0)
 rng, key = random.split(rng)
@@ -32,21 +35,20 @@ model = FunctionEncoder(
 
 
 def loss_function(model, point):
-    coefficients = model.compute_coefficients(point["X"], point["y"][:, None])
-    y_pred = model(point["X"], coefficients)
+    coefficients = model.compute_coefficients(point["X"][:, None], point["y"][:, None])
+    y_pred = model(point["X"][:, None], coefficients)
     return optax.l2_loss(point["y"][:, None], y_pred).mean()
 
 
 model = train_function_encoder(model, ds["train"].take(1000), loss_function)
 
-# Plot
 
+# Plot
 
 point = ds["train"].take(1)[0]
 
-X = point["X"]
-y = point["y"]
-y = y[:, None]
+X = point["X"][:, None]
+y = point["y"][:, None]
 
 idx = jnp.argsort(X, axis=0).flatten()
 X = X[idx]

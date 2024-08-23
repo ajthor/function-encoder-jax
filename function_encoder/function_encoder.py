@@ -1,10 +1,13 @@
 from typing import Callable
 
+from functools import partial
+
 from jax import random
 import jax.numpy as jnp
 
 import equinox as eqx
 import optax
+import lineax as lx
 
 from jaxtyping import Float, Array, PRNGKeyArray
 
@@ -23,47 +26,63 @@ def least_squares(G: Array, y: Array):
     """Compute the coefficients using least squares."""
     F = jnp.einsum("kmd,md->k", G, y) / y.shape[0]
     K = jnp.einsum("kmd,lmd->kl", G, G) / y.shape[0]
-    # K = K.at[jnp.diag_indices_from(K)].add(1 / y.shape[0] ** 2)
-    coefficients = jnp.linalg.solve(K, F)
-    return coefficients
+
+    # K = jnp.einsum("kmd,lmd->klm", G, G).mean(axis=-1)  # / y.shape[0]
+    # K = K.at[jnp.diag_indices_from(K)].add(1e-3)
+    # coefficients = jnp.linalg.solve(K, F)
+    # return coefficients
+
+    operator = lx.MatrixLinearOperator(K)
+    coefficients_solution = lx.linear_solve(operator, F)
+    return coefficients_solution.value
+
+
+class BasisFunctions(eqx.Module):
+    basis_functions: eqx.nn.MLP
+
+    def __init__(self, basis_size: int, *args, key: PRNGKeyArray, **kwargs):
+        keys = random.split(key, basis_size)
+        make_mlp = lambda key: MLP(*args, **kwargs, key=key)
+        self.basis_functions = eqx.filter_vmap(make_mlp)(keys)
+
+    def __call__(self, X):
+        """Compute the forward pass of the basis functions."""
+        return eqx.filter_vmap(
+            lambda model, x: model(x), in_axes=(eqx.if_array(0), None)
+        )(self.basis_functions, X)
 
 
 class FunctionEncoder(eqx.Module):
-    basis_functions: eqx.nn.MLP
+    basis_functions: BasisFunctions
     coefficients_method: Callable
 
     def __init__(
         self,
-        basis_size: int,
         coefficients_method: Callable = least_squares,
         *args,
         key: PRNGKeyArray,
         **kwargs,
     ):
 
-        # Initialize the basis functions
-        keys = random.split(key, basis_size)
-        make_mlp = lambda key: MLP(*args, **kwargs, key=key)
-        self.basis_functions = eqx.filter_vmap(make_mlp)(keys)
-
+        self.basis_functions = BasisFunctions(*args, key=key, **kwargs)
         self.coefficients_method = coefficients_method
 
     def compute_coefficients(self, example_X: Array, example_y: Array):
         """Compute the coefficients of the basis functions for the given data."""
-        forward = eqx.filter_vmap(
-            lambda model, x: model(x), in_axes=(eqx.if_array(0), None)
-        )
-        G = forward(self.basis_functions, example_X)
+        G = self.basis_functions(example_X)
         coefficients = self.coefficients_method(G, example_y)
 
         return coefficients
 
+    def compute_gram_matrix(self, X: Array):
+        """Compute the Gram matrix."""
+        G = self.basis_functions(X)
+        K = jnp.einsum("kmd,lmd->kl", G, G)
+        return K
+
     def __call__(self, X: Array, coefficients: Array):
         """Compute the function approximation."""
-        forward = eqx.filter_vmap(
-            lambda model, x: model(x), in_axes=(eqx.if_array(0), None)
-        )
-        G = forward(self.basis_functions, X)
+        G = self.basis_functions(X)
         y = jnp.einsum("kmd,k->md", G, coefficients)
 
         return y
@@ -74,7 +93,7 @@ def train_function_encoder(
     ds,
     loss_function: Callable,
     learning_rate: float = 1e-3,
-    gradient_accumulation_steps: int = 10,
+    gradient_accumulation_steps: int = 50,
 ):
     opt = optax.chain(
         optax.clip_by_global_norm(1.0),

@@ -38,6 +38,10 @@ class EigenOperatorEncoder(eqx.Module):
         coefficients = self.function_encoder.compute_coefficients(example_X, example_y)
         return coefficients * self.eigenvalues
 
+    def compute_gram_matrix(self, X: Array):
+        """Compute the Gram matrix."""
+        return self.function_encoder.compute_gram_matrix(X)
+
     def __call__(self, X: Array, coefficients: Array):
         """Forward pass."""
         return self.function_encoder(X, coefficients)
