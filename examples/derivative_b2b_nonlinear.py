@@ -104,7 +104,7 @@ opt = optax.MultiSteps(opt, every_k_schedule=50)
 opt_state = opt.init(eqx.filter(operator, eqx.is_inexact_array))
 
 
-# @eqx.filter_jit
+@eqx.filter_jit
 def update(model, point, opt_state):
     loss, grads = eqx.filter_value_and_grad(operator_loss_function)(model, point)
     updates, opt_state = opt.update(grads, opt_state)
