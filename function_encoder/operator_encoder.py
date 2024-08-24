@@ -25,13 +25,13 @@ class EigenOperatorEncoder(eqx.Module):
         key: PRNGKeyArray,
         **kwargs,
     ):
-        fe_key, eig_key = random.split(key, 2)
+        fe_key, eig_key = random.split(key)
 
         self.function_encoder = FunctionEncoder(
             basis_size=basis_size, *args, key=fe_key, **kwargs
         )
 
-        self.eigenvalues = random.uniform(eig_key, (basis_size,))
+        self.eigenvalues = random.uniform(eig_key, (basis_size,), minval=-1, maxval=1)
 
     def compute_coefficients(self, example_X: Array, example_y: Array):
         """Compute the coefficients of the basis functions for the given data."""
@@ -44,7 +44,7 @@ class EigenOperatorEncoder(eqx.Module):
 
     def __call__(self, X: Array, coefficients: Array):
         """Forward pass."""
-        return self.function_encoder(X, coefficients)
+        return jnp.real(self.function_encoder(X, coefficients))
 
 
 def train_operator_encoder(
@@ -69,7 +69,7 @@ def train_operator_encoder(
         model = eqx.apply_updates(model, updates)
         return model, opt_state, loss
 
-    with tqdm.tqdm(enumerate(ds), total=ds.num_rows) as tqdm_bar:
+    with tqdm.tqdm(enumerate(ds)) as tqdm_bar:
         for i, point in tqdm_bar:
             model, opt_state, loss = update(model, point, opt_state)
 

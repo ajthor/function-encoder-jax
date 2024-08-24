@@ -9,7 +9,7 @@ import equinox as eqx
 import optax
 import lineax as lx
 
-from jaxtyping import Float, Array, PRNGKeyArray
+from jaxtyping import Array, PRNGKeyArray
 
 from function_encoder.model.mlp import MLP
 
@@ -22,20 +22,19 @@ def monte_carlo_integration(G: Array, y: Array):
     return F / (y.shape[0] ** 2)
 
 
-def least_squares(G: Array, y: Array):
+def least_squares(G: Array, y: Array, reg: float = 1e-9):
     """Compute the coefficients using least squares."""
     F = jnp.einsum("mkd,md->k", G, y) / y.shape[0]
     K = jnp.einsum("mkd,mld->kl", G, G) / y.shape[0]
+    K = K.at[jnp.diag_indices_from(K)].add(reg)
 
-    # K = jnp.einsum("kmd,lmd->klm", G, G).mean(axis=-1)  # / y.shape[0]
-    # K = K.at[jnp.diag_indices_from(K)].add(1e-3)
-    # coefficients = jnp.linalg.solve(K, F)
-    # return coefficients
+    coefficients = jnp.linalg.solve(K, F)
+    return coefficients
 
-    operator = lx.MatrixLinearOperator(K)
-    coefficients_solution = lx.linear_solve(operator, F)
+    # operator = lx.MatrixLinearOperator(K)
+    # coefficients_solution = lx.linear_solve(operator, F)
 
-    return coefficients_solution.value
+    # return coefficients_solution.value
 
 
 class BasisFunctions(eqx.Module):
