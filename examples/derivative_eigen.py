@@ -15,12 +15,13 @@ from function_encoder.operator_encoder import (
     EigenOperatorEncoder,
     train_operator_encoder,
 )
+from function_encoder.losses import gram_normalization_loss
 
 import matplotlib.pyplot as plt
 
 # Load dataset
 
-ds = load_dataset("ajthor/derivative")
+ds = load_dataset("ajthor/derivative_polynomial")
 ds = ds.with_format("jax")
 
 
@@ -31,11 +32,10 @@ rng, key = random.split(rng)
 
 model = EigenOperatorEncoder(
     basis_size=8,
-    layer_sizes=(1, 64, 64, 1),
+    layer_sizes=(1, 32, 1),
     activation_function=jax.nn.tanh,
     key=key,
 )
-
 
 # Train
 
@@ -45,7 +45,7 @@ def loss_function(model, point):
     Tf_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
         point["Y"][:, None], coefficients
     )
-    pred_loss = optax.l2_loss(point["Tf"][:, None], Tf_pred).mean()
+    pred_loss = optax.squared_error(Tf_pred, point["Tf"][:, None]).mean()
     return pred_loss
 
 
@@ -61,12 +61,6 @@ f = point["f"][:, None]
 Y = point["Y"][:, None]
 Tf = point["Tf"][:, None]
 
-coefficients = model.compute_coefficients(X, f)
-Tf_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(Y, coefficients)
-
-fig = plt.figure()
-ax = fig.add_subplot(111)
-
 idx = jnp.argsort(X, axis=0).flatten()
 X = X[idx]
 f = f[idx]
@@ -75,10 +69,17 @@ idx = jnp.argsort(Y, axis=0).flatten()
 Y = Y[idx]
 Tf = Tf[idx]
 
+coefficients = model.compute_coefficients(X, f)
+Tf_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(Y, coefficients)
+
+fig = plt.figure()
+ax = fig.add_subplot(111)
+
 ax.plot(X, f, label="Original")
 ax.scatter(X, f, label="Data", color="red")
 
 ax.plot(Y, Tf, label="True")
 ax.plot(Y, Tf_pred, label="Predicted")
 
+plt.legend()
 plt.show()

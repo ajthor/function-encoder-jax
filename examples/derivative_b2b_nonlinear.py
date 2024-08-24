@@ -11,7 +11,7 @@ import equinox as eqx
 import optax
 
 from function_encoder.model.mlp import MLP
-from function_encoder.losses import gram_orthogonality_loss
+from function_encoder.losses import gram_normalization_loss
 from function_encoder.function_encoder import FunctionEncoder, train_function_encoder
 
 import matplotlib.pyplot as plt
@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 import tqdm
 
 
-ds = load_dataset("ajthor/derivative")
+ds = load_dataset("ajthor/derivative_polynomial")
 ds = ds.with_format("jax")
 
 rng = random.PRNGKey(0)
@@ -42,7 +42,7 @@ target_encoder = FunctionEncoder(
 
 operator = MLP(
     layer_sizes=(8, 64, 64, 8),
-    activation_function=jax.nn.tanh,
+    activation_function=jax.nn.relu,
     key=operator_key,
 )
 
@@ -57,12 +57,12 @@ def source_loss_function(model, point):
         point["X"][:, None], coefficients
     )
     pred_loss = optax.l2_loss(f_pred, point["f"][:, None]).mean()
-    # gram_loss = gram_orthogonality_loss(model.compute_gram_matrix(point["X"][:, None]))
-    return pred_loss  # + gram_loss
+    gram_loss = gram_normalization_loss(model.compute_gram_matrix(point["X"][:, None]))
+    return pred_loss + gram_loss
 
 
 source_encoder = train_function_encoder(
-    source_encoder, ds["train"].take(1000), source_loss_function
+    source_encoder, ds["train"], source_loss_function
 )
 
 
@@ -73,12 +73,12 @@ def target_loss_function(model, point):
         point["Y"][:, None], coefficients
     )
     pred_loss = optax.l2_loss(Tf_pred, point["Tf"][:, None]).mean()
-    # gram_loss = gram_orthogonality_loss(model.compute_gram_matrix(point["Y"][:, None]))
-    return pred_loss  # + gram_loss
+    gram_loss = gram_normalization_loss(model.compute_gram_matrix(point["Y"][:, None]))
+    return pred_loss + gram_loss
 
 
 target_encoder = train_function_encoder(
-    target_encoder, ds["train"].take(1000), target_loss_function
+    target_encoder, ds["train"], target_loss_function
 )
 
 
@@ -104,7 +104,7 @@ opt = optax.MultiSteps(opt, every_k_schedule=50)
 opt_state = opt.init(eqx.filter(operator, eqx.is_inexact_array))
 
 
-@eqx.filter_jit
+# @eqx.filter_jit
 def update(model, point, opt_state):
     loss, grads = eqx.filter_value_and_grad(operator_loss_function)(model, point)
     updates, opt_state = opt.update(grads, opt_state)
@@ -129,6 +129,14 @@ f = point["f"][:, None]
 Y = point["Y"][:, None]
 Tf = point["Tf"][:, None]
 
+idx = jnp.argsort(X, axis=0).flatten()
+X = X[idx]
+f = f[idx]
+
+idx = jnp.argsort(Y, axis=0).flatten()
+Y = Y[idx]
+Tf = Tf[idx]
+
 source_coefficients = source_encoder.compute_coefficients(X, f)
 target_coefficients = operator(source_coefficients)
 Tf_pred = eqx.filter_vmap(target_encoder, in_axes=(eqx.if_array(0), None))(
@@ -137,14 +145,6 @@ Tf_pred = eqx.filter_vmap(target_encoder, in_axes=(eqx.if_array(0), None))(
 
 fig = plt.figure()
 ax = fig.add_subplot(111)
-
-idx = jnp.argsort(X, axis=0).flatten()
-X = X[idx]
-f = f[idx]
-
-idx = jnp.argsort(Y, axis=0).flatten()
-Y = Y[idx]
-Tf = Tf[idx]
 
 ax.plot(X, f, label="Original")
 ax.scatter(X, f, label="Data", color="red")
