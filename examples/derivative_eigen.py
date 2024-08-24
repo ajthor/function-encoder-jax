@@ -46,7 +46,8 @@ def loss_function(model, point):
         point["Y"][:, None], coefficients
     )
     pred_loss = optax.squared_error(Tf_pred, point["Tf"][:, None]).mean()
-    return pred_loss
+    gram_loss = gram_normalization_loss(model.compute_gram_matrix(point["X"][:, None]))
+    return pred_loss + gram_loss
 
 
 model = train_operator_encoder(model, ds["train"], loss_function)
