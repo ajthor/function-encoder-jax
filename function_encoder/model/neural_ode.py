@@ -1,8 +1,12 @@
 from functools import partial
 
-from jax import jit, vmap, random, tree_util
+import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Key
+
+from jax.experimental.ode import odeint
+
+jax.config.update("jax_enable_x64", True)
 
 import equinox as eqx
 
@@ -11,33 +15,34 @@ import diffrax
 from function_encoder.model.mlp import MLP
 
 
-# class Dynamics(eqx.Module):
-#     mlp: MLP
+class Dynamics(eqx.Module):
+    mlp: MLP
 
-#     def __init__(self, *args, **kwargs):
-#         self.mlp = MLP(*args, **kwargs)
+    def __init__(self, *args, **kwargs):
+        self.mlp = MLP(*args, **kwargs)
 
-#     def __call__(self, t, x):
-#         return self.mlp(x)
+    def __call__(self, t, x, args):
+        return self.mlp(x)
 
 
 class NeuralODE(eqx.Module):
-    dynamics: MLP
+    dynamics: Dynamics
 
     def __init__(self, *args, **kwargs):
-        self.dynamics = MLP(*args, **kwargs)
+        self.dynamics = Dynamics(*args, **kwargs)
 
     def __call__(self, y0_and_time: tuple):
         y0, ts = y0_and_time
 
         solution = diffrax.diffeqsolve(
-            diffrax.ODETerm(lambda t, y: self.dynamics(y)),
+            diffrax.ODETerm(self.dynamics),
             diffrax.Tsit5(),
             t0=ts[0],
             t1=ts[-1],
             dt0=ts[1] - ts[0],
             y0=y0,
             stepsize_controller=diffrax.PIDController(rtol=1e-3, atol=1e-6),
-            saveat=diffrax.SaveAt(ts=ts),
+            adjoint=diffrax.BacksolveAdjoint(),
+            saveat=diffrax.SaveAt(t0=True, t1=True),
         )
-        return solution.ys
+        return solution.ys[-1]
