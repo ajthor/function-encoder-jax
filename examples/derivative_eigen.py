@@ -5,6 +5,7 @@ jax.config.update("jax_enable_x64", True)
 from jax import random
 import jax.numpy as jnp
 
+import equinox as eqx
 import optax
 
 from datasets import load_dataset
@@ -41,7 +42,9 @@ model = EigenOperatorEncoder(
 
 def loss_function(model, point):
     coefficients = model.compute_coefficients(point["X"][:, None], point["f"][:, None])
-    Tf_pred = model(point["Y"][:, None], coefficients)
+    Tf_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
+        point["Y"][:, None], coefficients
+    )
     pred_loss = optax.l2_loss(point["Tf"][:, None], Tf_pred).mean()
     return pred_loss
 
@@ -59,7 +62,7 @@ Y = point["Y"][:, None]
 Tf = point["Tf"][:, None]
 
 coefficients = model.compute_coefficients(X, f)
-Tf_pred = model(Y, coefficients)
+Tf_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(Y, coefficients)
 
 fig = plt.figure()
 ax = fig.add_subplot(111)

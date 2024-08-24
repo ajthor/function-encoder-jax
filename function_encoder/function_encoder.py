@@ -18,14 +18,14 @@ import tqdm
 
 def monte_carlo_integration(G: Array, y: Array):
     """Compute the coefficients using Monte Carlo integration."""
-    F = jnp.einsum("kmd,md->k", G, y)
+    F = jnp.einsum("mkd,md->k", G, y)
     return F / (y.shape[0] ** 2)
 
 
 def least_squares(G: Array, y: Array):
     """Compute the coefficients using least squares."""
-    F = jnp.einsum("kmd,md->k", G, y) / y.shape[0]
-    K = jnp.einsum("kmd,lmd->kl", G, G) / y.shape[0]
+    F = jnp.einsum("mkd,md->k", G, y) / y.shape[0]
+    K = jnp.einsum("mkd,mld->kl", G, G) / y.shape[0]
 
     # K = jnp.einsum("kmd,lmd->klm", G, G).mean(axis=-1)  # / y.shape[0]
     # K = K.at[jnp.diag_indices_from(K)].add(1e-3)
@@ -34,6 +34,7 @@ def least_squares(G: Array, y: Array):
 
     operator = lx.MatrixLinearOperator(K)
     coefficients_solution = lx.linear_solve(operator, F)
+
     return coefficients_solution.value
 
 
@@ -76,21 +77,21 @@ class FunctionEncoder(eqx.Module):
 
     def compute_coefficients(self, example_X: Array, example_y: Array):
         """Compute the coefficients of the basis functions for the given data."""
-        G = self.basis_functions(example_X)
+        G = eqx.filter_vmap(self.basis_functions)(example_X)
         coefficients = self.coefficients_method(G, example_y)
 
         return coefficients
 
     def compute_gram_matrix(self, X: Array):
         """Compute the Gram matrix."""
-        G = self.basis_functions(X)
-        K = jnp.einsum("kmd,lmd->kl", G, G)
+        G = eqx.filter_vmap(self.basis_functions)(X)
+        K = jnp.einsum("mkd,mld->kl", G, G)
         return K
 
     def __call__(self, X: Array, coefficients: Array):
         """Compute the function approximation."""
         G = self.basis_functions(X)
-        y = jnp.einsum("kmd,k->md", G, coefficients)
+        y = jnp.einsum("kd,k->d", G, coefficients)
 
         return y
 
@@ -117,7 +118,7 @@ def train_function_encoder(
         model = eqx.apply_updates(model, updates)
         return model, opt_state, loss
 
-    with tqdm.tqdm(enumerate(ds), total=ds.num_rows) as tqdm_bar:
+    with tqdm.tqdm(enumerate(ds)) as tqdm_bar:
         for i, point in tqdm_bar:
             model, opt_state, loss = update(model, point, opt_state)
 
