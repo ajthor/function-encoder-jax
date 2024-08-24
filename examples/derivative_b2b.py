@@ -43,7 +43,9 @@ target_encoder = FunctionEncoder(
 # Train the source encoder.
 def source_loss_function(model, point):
     coefficients = model.compute_coefficients(point["X"][:, None], point["f"][:, None])
-    f_pred = model(point["X"][:, None], coefficients)
+    f_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
+        point["X"][:, None], coefficients
+    )
     return optax.l2_loss(point["f"][:, None], f_pred).mean()
 
 
@@ -55,7 +57,9 @@ source_encoder = train_function_encoder(
 # Train the target encoder.
 def target_loss_function(model, point):
     coefficients = model.compute_coefficients(point["Y"][:, None], point["Tf"][:, None])
-    Tf_pred = model(point["Y"][:, None], coefficients)
+    Tf_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
+        point["Y"][:, None], coefficients
+    )
     return optax.l2_loss(point["Tf"][:, None], Tf_pred).mean()
 
 
@@ -87,7 +91,9 @@ Tf = point["Tf"][:, None]
 
 source_coefficients = source_encoder.compute_coefficients(X, f)
 target_coefficients = jnp.dot(source_coefficients, operator)
-Tf_pred = target_encoder(Y, target_coefficients)
+Tf_pred = eqx.filter_vmap(target_encoder, in_axes=(eqx.if_array(0), None))(
+    Y, target_coefficients
+)
 
 fig = plt.figure()
 ax = fig.add_subplot(111)

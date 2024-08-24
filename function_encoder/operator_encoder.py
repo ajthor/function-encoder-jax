@@ -52,7 +52,7 @@ def train_operator_encoder(
     ds,
     loss_function: Callable,
     learning_rate: float = 1e-3,
-    gradient_accumulation_steps: int = 10,
+    gradient_accumulation_steps: int = 50,
 ):
     opt = optax.chain(
         optax.clip_by_global_norm(1.0),

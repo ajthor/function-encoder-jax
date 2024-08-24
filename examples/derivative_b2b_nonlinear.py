@@ -53,7 +53,9 @@ operator = MLP(
 # Train the source encoder.
 def source_loss_function(model, point):
     coefficients = model.compute_coefficients(point["X"][:, None], point["f"][:, None])
-    f_pred = model(point["X"][:, None], coefficients)
+    f_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
+        point["X"][:, None], coefficients
+    )
     pred_loss = optax.l2_loss(f_pred, point["f"][:, None]).mean()
     # gram_loss = gram_orthogonality_loss(model.compute_gram_matrix(point["X"][:, None]))
     return pred_loss  # + gram_loss
@@ -67,7 +69,9 @@ source_encoder = train_function_encoder(
 # Train the target encoder.
 def target_loss_function(model, point):
     coefficients = model.compute_coefficients(point["Y"][:, None], point["Tf"][:, None])
-    Tf_pred = model(point["Y"][:, None], coefficients)
+    Tf_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
+        point["Y"][:, None], coefficients
+    )
     pred_loss = optax.l2_loss(Tf_pred, point["Tf"][:, None]).mean()
     # gram_loss = gram_orthogonality_loss(model.compute_gram_matrix(point["Y"][:, None]))
     return pred_loss  # + gram_loss
@@ -127,7 +131,9 @@ Tf = point["Tf"][:, None]
 
 source_coefficients = source_encoder.compute_coefficients(X, f)
 target_coefficients = operator(source_coefficients)
-Tf_pred = target_encoder(Y, target_coefficients)
+Tf_pred = eqx.filter_vmap(target_encoder, in_axes=(eqx.if_array(0), None))(
+    Y, target_coefficients
+)
 
 fig = plt.figure()
 ax = fig.add_subplot(111)
