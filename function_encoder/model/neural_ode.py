@@ -1,15 +1,8 @@
-from functools import partial
-
 import jax
-import jax.numpy as jnp
-from jaxtyping import Array, Key
-
-from jax.experimental.ode import odeint
 
 jax.config.update("jax_enable_x64", True)
 
 import equinox as eqx
-
 import diffrax
 
 from function_encoder.model.mlp import MLP

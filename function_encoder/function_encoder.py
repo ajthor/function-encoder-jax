@@ -1,7 +1,5 @@
 from typing import Callable
 
-from functools import partial
-
 from jax import random
 import jax.numpy as jnp
 
