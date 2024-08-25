@@ -5,13 +5,8 @@ jax.config.update("jax_enable_x64", True)
 from jax import random
 import jax.numpy as jnp
 
-from jax.experimental.ode import odeint
-
-import equinox as eqx
 import diffrax
 import optax
-
-from datasets import load_dataset, Dataset, Value, Array2D, Features
 
 from function_encoder.model.neural_ode import NeuralODE
 from function_encoder.function_encoder import FunctionEncoder, train_function_encoder
@@ -33,8 +28,6 @@ def generate_data(key):
 
     ts = jnp.sort(random.uniform(t_key, (1000,), minval=0, maxval=10))
     ts = jnp.concatenate([jnp.array([0.0]), ts])
-
-    # x = odeint(van_der_pol, x0, t, mu)
 
     solution = diffrax.diffeqsolve(
         diffrax.ODETerm(van_der_pol),
@@ -58,25 +51,16 @@ def generate_data(key):
     }
 
 
-ds_size = 100
+ds_size = 1000
 rng = random.PRNGKey(0)
 rng, key = random.split(rng)
 keys = random.split(key, ds_size)
 data = jax.vmap(generate_data)(keys)
 data = [{k: v[i] for k, v in data.items()} for i in range(ds_size)]
 
-# features = Features(
-#     {
-#         "t0": Array2D(shape=(1000, 1), dtype="float64", id=None),
-#         "tf": Array2D(shape=(1000, 1), dtype="float64", id=None),
-#         "x": Array2D(shape=(1000, 2), dtype="float64", id=None),
-#         "y": Array2D(shape=(1000, 2), dtype="float64", id=None),
-#         # "mu": Value(dtype="float64", id=None),
-#     }
-# )
 
-# ds = Dataset.from_dict(data, features=features)
-# # ds = ds.with_format("jax")
+example_data_size = 200
+
 
 # Create model
 
@@ -90,17 +74,30 @@ model = FunctionEncoder(
     key=key,
 )
 
+
+def predict_trajectory(model, y0, ts, coefficients):
+    def step_fn(y, t):
+        y = model((y, t), coefficients)
+        return y, y
+
+    return jax.lax.scan(step_fn, y0, ts)
+
+
 # Train
 
 
 def loss_function(model, point):
     ts = jnp.hstack([point["t0"][:, None], point["tf"][:, None]])
-    coefficients = model.compute_coefficients((point["x"], ts), point["y"])
-    # y_pred = model((point["x"], ts), coefficients)
-    y_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
-        (point["x"], ts), coefficients
+    coefficients = model.compute_coefficients(
+        (point["x"][:example_data_size], ts[:example_data_size]),
+        point["y"][:example_data_size],
     )
-    return optax.l2_loss(point["y"], y_pred).mean()
+
+    y_pred = predict_trajectory(
+        model, point["x"][example_data_size], ts[example_data_size:], coefficients
+    )[1]
+
+    return jnp.linalg.norm(y_pred - point["y"][example_data_size:], axis=-1).mean()
 
 
 model = train_function_encoder(model, data, loss_function)
@@ -108,37 +105,24 @@ model = train_function_encoder(model, data, loss_function)
 
 # Plot
 
-# Choose a random point
 idx = random.randint(rng, (), 0, ds_size)
 point = data[idx]
 
-example_data_size = 100
-ts = jnp.hstack(
-    [point["t0"][example_data_size:, None], point["tf"][example_data_size:, None]]
-)
+ts = jnp.hstack([point["t0"][:, None], point["tf"][:, None]])
 coefficients = model.compute_coefficients(
-    (point["x"][example_data_size:], ts), point["y"][example_data_size:]
+    (point["x"][:example_data_size], ts[:example_data_size]),
+    point["y"][:example_data_size],
 )
 
-# Now step by step, predict the next point
-trajectory = []
-for i in range(example_data_size, 1000):
-    x = point["x"][i]
-    t0 = point["t0"][i]
-    tf = point["tf"][i]
-    ts = jnp.array([t0, tf])
-
-    y_pred = model((x, ts), coefficients)
-    trajectory.append(y_pred)
-
-
-trajectory = jnp.array(trajectory)
+y_pred = predict_trajectory(
+    model, point["x"][example_data_size], ts[example_data_size:], coefficients
+)[1]
 
 fig = plt.figure()
 ax = fig.add_subplot(111)
 
 ax.plot(point["y"][:, 0], point["y"][:, 1], label="True")
-ax.plot(trajectory[:, 0], trajectory[:, 1], label="Predicted")
+ax.plot(y_pred[:, 0], y_pred[:, 1], label="Predicted")
 
 # Plot initial data
 ax.plot(
