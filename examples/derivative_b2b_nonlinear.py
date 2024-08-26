@@ -11,7 +11,7 @@ import equinox as eqx
 import optax
 
 from function_encoder.model.mlp import MLP
-from function_encoder.losses import gram_normalization_loss
+from function_encoder.losses import basis_normalization_loss
 from function_encoder.function_encoder import FunctionEncoder, train_model
 
 import matplotlib.pyplot as plt
@@ -57,10 +57,8 @@ def source_loss_function(model, point):
         point["X"][:, None], coefficients
     )
     pred_loss = optax.squared_error(f_pred, point["f"][:, None]).mean()
-    gram_loss = gram_normalization_loss(
-        model.basis_functions.compute_gram_matrix(point["X"][:, None])
-    )
-    return pred_loss + gram_loss
+    norm_loss = basis_normalization_loss(model.basis_functions, point["X"][:, None])
+    return pred_loss + norm_loss
 
 
 source_encoder = train_model(source_encoder, ds["train"], source_loss_function)
@@ -73,10 +71,8 @@ def target_loss_function(model, point):
         point["Y"][:, None], coefficients
     )
     pred_loss = optax.squared_error(Tf_pred, point["Tf"][:, None]).mean()
-    gram_loss = gram_normalization_loss(
-        model.basis_functions.compute_gram_matrix(point["Y"][:, None])
-    )
-    return pred_loss + gram_loss
+    norm_loss = basis_normalization_loss(model.basis_functions, point["Y"][:, None])
+    return pred_loss + norm_loss
 
 
 target_encoder = train_model(target_encoder, ds["train"], target_loss_function)

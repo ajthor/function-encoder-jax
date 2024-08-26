@@ -10,7 +10,7 @@ import optax
 
 from datasets import load_dataset
 
-from function_encoder.losses import gram_normalization_loss
+from function_encoder.losses import basis_normalization_loss
 from function_encoder.function_encoder import FunctionEncoder, train_model
 
 import matplotlib.pyplot as plt
@@ -42,8 +42,8 @@ def loss_function(model, point):
         point["X"][:, None], coefficients
     )
     pred_loss = optax.squared_error(point["y"][:, None], y_pred).mean()
-    gram_loss = gram_normalization_loss(model.compute_gram_matrix(point["X"][:, None]))
-    return pred_loss + gram_loss
+    norm_loss = basis_normalization_loss(model.basis_functions, point["X"][:, None])
+    return pred_loss + norm_loss
 
 
 model = train_model(model, ds["train"], loss_function)

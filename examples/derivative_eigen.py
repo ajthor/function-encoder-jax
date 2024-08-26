@@ -13,7 +13,7 @@ from datasets import load_dataset
 
 from function_encoder.operator_encoder import EigenOperatorEncoder
 from function_encoder.function_encoder import train_model
-from function_encoder.losses import gram_orthogonality_loss
+from function_encoder.losses import basis_orthogonality_loss
 
 import matplotlib.pyplot as plt
 
@@ -44,10 +44,10 @@ def loss_function(model, point):
         point["Y"][:, None], coefficients
     )
     pred_loss = optax.squared_error(Tf_pred, point["Tf"][:, None]).mean()
-    gram_loss = gram_orthogonality_loss(
-        model.function_encoder.basis_functions.compute_gram_matrix(point["X"][:, None])
+    orth_loss = basis_orthogonality_loss(
+        model.function_encoder.basis_functions, point["X"][:, None]
     )
-    return pred_loss + gram_loss
+    return pred_loss + orth_loss
 
 
 model = train_model(model, ds["train"], loss_function)
