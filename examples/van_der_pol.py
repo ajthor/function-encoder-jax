@@ -9,7 +9,7 @@ import diffrax
 import optax
 
 from function_encoder.model.neural_ode import NeuralODE
-from function_encoder.function_encoder import FunctionEncoder, train_function_encoder
+from function_encoder.function_encoder import FunctionEncoder, train_model
 
 import matplotlib.pyplot as plt
 
@@ -100,7 +100,7 @@ def loss_function(model, point):
     return jnp.linalg.norm(y_pred - point["y"][example_data_size:], axis=-1).mean()
 
 
-model = train_function_encoder(model, data, loss_function)
+model = train_model(model, data, loss_function)
 
 
 # Plot

@@ -11,7 +11,7 @@ import optax
 from datasets import load_dataset
 
 
-from function_encoder.operator_encoder import EigenOperatorEncoder
+from function_encoder.operator_encoder import SVDOperatorEncoder
 from function_encoder.function_encoder import train_model
 from function_encoder.losses import gram_orthogonality_loss
 
@@ -28,7 +28,7 @@ ds = ds.with_format("jax")
 rng = random.PRNGKey(0)
 rng, key = random.split(rng)
 
-model = EigenOperatorEncoder(
+model = SVDOperatorEncoder(
     basis_size=8,
     layer_sizes=(1, 32, 1),
     activation_function=jax.nn.tanh,
@@ -44,10 +44,13 @@ def loss_function(model, point):
         point["Y"][:, None], coefficients
     )
     pred_loss = optax.squared_error(Tf_pred, point["Tf"][:, None]).mean()
-    gram_loss = gram_orthogonality_loss(
-        model.function_encoder.basis_functions.compute_gram_matrix(point["X"][:, None])
+    source_gram_loss = gram_orthogonality_loss(
+        model.source_encoder.basis_functions.compute_gram_matrix(point["X"][:, None])
     )
-    return pred_loss + gram_loss
+    target_gram_loss = gram_orthogonality_loss(
+        model.target_encoder.basis_functions.compute_gram_matrix(point["X"][:, None])
+    )
+    return pred_loss + source_gram_loss + target_gram_loss
 
 
 model = train_model(model, ds["train"], loss_function)

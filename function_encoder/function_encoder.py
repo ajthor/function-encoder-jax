@@ -50,6 +50,12 @@ class BasisFunctions(eqx.Module):
         make_mlp = lambda key: basis_type(*args, **kwargs, key=key)
         self.basis_functions = eqx.filter_vmap(make_mlp)(keys)
 
+    def compute_gram_matrix(self, X: Array):
+        """Compute the Gram matrix."""
+        G = eqx.filter_vmap(self.__call__)(X)
+        K = jnp.einsum("mkd,mld->kl", G, G)
+        return K
+
     def __call__(self, X):
         """Compute the forward pass of the basis functions."""
         return eqx.filter_vmap(
@@ -79,12 +85,6 @@ class FunctionEncoder(eqx.Module):
 
         return coefficients
 
-    def compute_gram_matrix(self, X: Array):
-        """Compute the Gram matrix."""
-        G = eqx.filter_vmap(self.basis_functions)(X)
-        K = jnp.einsum("mkd,mld->kl", G, G)
-        return K
-
     def __call__(self, X: Array, coefficients: Array):
         """Compute the function approximation."""
         G = self.basis_functions(X)
@@ -93,7 +93,7 @@ class FunctionEncoder(eqx.Module):
         return y
 
 
-def train_function_encoder(
+def train_model(
     model: FunctionEncoder,
     ds,
     loss_function: Callable,

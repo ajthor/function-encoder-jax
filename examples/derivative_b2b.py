@@ -11,7 +11,7 @@ import equinox as eqx
 import optax
 
 from function_encoder.losses import gram_normalization_loss
-from function_encoder.function_encoder import FunctionEncoder, train_function_encoder
+from function_encoder.function_encoder import FunctionEncoder, train_model
 
 import matplotlib.pyplot as plt
 
@@ -47,14 +47,12 @@ def source_loss_function(model, point):
     f_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
         point["X"][:, None], coefficients
     )
-    pred_loss = optax.l2_loss(point["f"][:, None], f_pred).mean()
+    pred_loss = optax.squared_error(point["f"][:, None], f_pred).mean()
     gram_loss = gram_normalization_loss(model.compute_gram_matrix(point["X"][:, None]))
     return pred_loss + gram_loss
 
 
-source_encoder = train_function_encoder(
-    source_encoder, ds["train"], source_loss_function
-)
+source_encoder = train_model(source_encoder, ds["train"], source_loss_function)
 
 
 # Train the target encoder.
@@ -63,14 +61,12 @@ def target_loss_function(model, point):
     Tf_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
         point["Y"][:, None], coefficients
     )
-    pred_loss = optax.l2_loss(point["Tf"][:, None], Tf_pred).mean()
+    pred_loss = optax.squared_error(point["Tf"][:, None], Tf_pred).mean()
     gram_loss = gram_normalization_loss(model.compute_gram_matrix(point["X"][:, None]))
     return pred_loss + gram_loss
 
 
-target_encoder = train_function_encoder(
-    target_encoder, ds["train"], target_loss_function
-)
+target_encoder = train_model(target_encoder, ds["train"], target_loss_function)
 
 # Train the operator.
 ds_subset = ds["train"].take(1000)

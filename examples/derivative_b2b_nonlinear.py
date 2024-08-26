@@ -12,7 +12,7 @@ import optax
 
 from function_encoder.model.mlp import MLP
 from function_encoder.losses import gram_normalization_loss
-from function_encoder.function_encoder import FunctionEncoder, train_function_encoder
+from function_encoder.function_encoder import FunctionEncoder, train_model
 
 import matplotlib.pyplot as plt
 
@@ -56,14 +56,14 @@ def source_loss_function(model, point):
     f_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
         point["X"][:, None], coefficients
     )
-    pred_loss = optax.l2_loss(f_pred, point["f"][:, None]).mean()
-    gram_loss = gram_normalization_loss(model.compute_gram_matrix(point["X"][:, None]))
+    pred_loss = optax.squared_error(f_pred, point["f"][:, None]).mean()
+    gram_loss = gram_normalization_loss(
+        model.basis_functions.compute_gram_matrix(point["X"][:, None])
+    )
     return pred_loss + gram_loss
 
 
-source_encoder = train_function_encoder(
-    source_encoder, ds["train"], source_loss_function
-)
+source_encoder = train_model(source_encoder, ds["train"], source_loss_function)
 
 
 # Train the target encoder.
@@ -72,14 +72,14 @@ def target_loss_function(model, point):
     Tf_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
         point["Y"][:, None], coefficients
     )
-    pred_loss = optax.l2_loss(Tf_pred, point["Tf"][:, None]).mean()
-    gram_loss = gram_normalization_loss(model.compute_gram_matrix(point["Y"][:, None]))
+    pred_loss = optax.squared_error(Tf_pred, point["Tf"][:, None]).mean()
+    gram_loss = gram_normalization_loss(
+        model.basis_functions.compute_gram_matrix(point["Y"][:, None])
+    )
     return pred_loss + gram_loss
 
 
-target_encoder = train_function_encoder(
-    target_encoder, ds["train"], target_loss_function
-)
+target_encoder = train_model(target_encoder, ds["train"], target_loss_function)
 
 
 # Train the operator.
@@ -96,28 +96,7 @@ def operator_loss_function(model, point):
     return optax.squared_error(target_coefficients_pred, target_coefficients).mean()
 
 
-opt = optax.chain(
-    optax.clip_by_global_norm(1.0),
-    optax.adam(learning_rate=1e-3),
-)
-opt = optax.MultiSteps(opt, every_k_schedule=50)
-opt_state = opt.init(eqx.filter(operator, eqx.is_inexact_array))
-
-
-@eqx.filter_jit
-def update(model, point, opt_state):
-    loss, grads = eqx.filter_value_and_grad(operator_loss_function)(model, point)
-    updates, opt_state = opt.update(grads, opt_state)
-    model = eqx.apply_updates(model, updates)
-    return model, opt_state, loss
-
-
-with tqdm.tqdm(enumerate(ds["train"]), total=ds["train"].num_rows) as tqdm_bar:
-    for i, point in tqdm_bar:
-        operator, opt_state, loss = update(operator, point, opt_state)
-
-        if i % 10 == 0:
-            tqdm_bar.set_postfix_str(f"Loss: {loss:.2e}")
+operator = train_model(operator, ds["train"], operator_loss_function)
 
 
 # Plot
