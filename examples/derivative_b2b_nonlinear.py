@@ -18,13 +18,16 @@ import matplotlib.pyplot as plt
 
 import tqdm
 
+# Load dataset
 
 ds = load_dataset("ajthor/derivative_polynomial")
 ds = ds.with_format("jax")
 
+
+# Create model
+
 rng = random.PRNGKey(0)
 source_key, target_key, operator_key = random.split(rng, 3)
-
 
 source_encoder = FunctionEncoder(
     basis_size=8,

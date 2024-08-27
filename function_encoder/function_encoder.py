@@ -47,8 +47,8 @@ class BasisFunctions(eqx.Module):
         **kwargs,
     ):
         keys = random.split(key, basis_size)
-        make_mlp = lambda key: basis_type(*args, **kwargs, key=key)
-        self.basis_functions = eqx.filter_vmap(make_mlp)(keys)
+        make_basis_function = lambda key: basis_type(*args, **kwargs, key=key)
+        self.basis_functions = eqx.filter_vmap(make_basis_function)(keys)
 
     def __call__(self, X):
         """Compute the forward pass of the basis functions."""
@@ -63,12 +63,11 @@ class FunctionEncoder(eqx.Module):
 
     def __init__(
         self,
-        coefficients_method: Callable = least_squares,
         *args,
-        key: PRNGKeyArray,
+        coefficients_method: Callable = least_squares,
+        key: random.PRNGKey,
         **kwargs,
     ):
-
         self.basis_functions = BasisFunctions(*args, key=key, **kwargs)
         self.coefficients_method = coefficients_method
 
@@ -85,6 +84,45 @@ class FunctionEncoder(eqx.Module):
         y = jnp.einsum("kd,k->d", G, coefficients)
 
         return y
+
+
+class ResidualFunctionEncoder(FunctionEncoder):
+    average_function: MLP
+
+    def __init__(
+        self,
+        basis_size: int,
+        *args,
+        basis_type: type = MLP,
+        coefficients_method: Callable = least_squares,
+        key: random.PRNGKey,
+        **kwargs,
+    ):
+        fe_key, avg_key = random.split(key)
+        super().__init__(
+            *args,
+            basis_size=basis_size,
+            basis_type=basis_type,
+            coefficients_method=coefficients_method,
+            key=fe_key,
+            **kwargs,
+        )
+
+        self.average_function = basis_type(*args, **kwargs, key=avg_key)
+
+    def compute_coefficients(self, example_X: Array, example_y: Array):
+        """Compute the coefficients of the basis functions for the given data."""
+        avg = eqx.filter_vmap(self.average_function)(example_X)
+        coefficients = super().compute_coefficients(example_X, example_y - avg)
+
+        return coefficients
+
+    def __call__(self, X: Array, coefficients: Array):
+        """Compute the function approximation."""
+        avg = self.average_function(X)
+        y = super().__call__(X, coefficients)
+
+        return y + avg
 
 
 def train_model(

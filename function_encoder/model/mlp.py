@@ -1,17 +1,23 @@
-from typing import Callable
+from typing import Callable, Tuple
 
 from jax import random
 import jax.numpy as jnp
-from jaxtyping import Array, Key
+from jaxtyping import Array
 
 import equinox as eqx
 
 
 class MLP(eqx.Module):
-    params: tuple
+    params: Tuple
     activation_function: Callable = jnp.tanh
 
-    def __init__(self, layer_sizes: tuple, activation_function: Callable, *, key: Key):
+    def __init__(
+        self,
+        layer_sizes: Tuple[int, ...],
+        activation_function: Callable,
+        *,
+        key: random.PRNGKey,
+    ):
 
         params = []
 

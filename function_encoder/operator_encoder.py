@@ -23,7 +23,7 @@ class SVDOperatorEncoder(eqx.Module):
         self,
         basis_size: int,
         *args,
-        key: PRNGKeyArray,
+        key: random.PRNGKey,
         **kwargs,
     ):
         source_key, sv = random.split(key)
@@ -58,7 +58,7 @@ class EigenOperatorEncoder(eqx.Module):
         self,
         basis_size: int,
         *args,
-        key: PRNGKeyArray,
+        key: random.PRNGKey,
         **kwargs,
     ):
         fe_key, eig_key = random.split(key)

@@ -15,23 +15,26 @@ from function_encoder.function_encoder import FunctionEncoder, train_model
 
 import matplotlib.pyplot as plt
 
+# Load dataset
 
 ds = load_dataset("ajthor/derivative_polynomial")
 ds = ds.with_format("jax")
 
+
+# Create model
+
 rng = random.PRNGKey(0)
 source_key, target_key, operator_key = random.split(rng, 3)
 
-
 source_encoder = FunctionEncoder(
-    basis_size=8,
+    basis_size=50,
     layer_sizes=(1, 32, 1),
     activation_function=jax.nn.tanh,
     key=source_key,
 )
 
 target_encoder = FunctionEncoder(
-    basis_size=8,
+    basis_size=50,
     layer_sizes=(1, 32, 1),
     activation_function=jax.nn.tanh,
     key=target_key,
@@ -114,4 +117,15 @@ ax.plot(Y, Tf, label="True")
 ax.plot(Y, Tf_pred, label="Predicted")
 
 ax.legend()
+plt.show()
+
+
+# Plot the singular values of the operator.
+singular_values = jnp.linalg.svd(operator, compute_uv=False)
+
+fig = plt.figure()
+ax = fig.add_subplot(111)
+
+ax.plot(singular_values, marker="o")
+
 plt.show()
