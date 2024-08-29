@@ -13,11 +13,8 @@ import optax
 from datasets import load_dataset
 
 from function_encoder.losses import basis_normalization_loss
-from function_encoder.function_encoder import (
-    FunctionEncoder,
-    train_model,
-    least_squares,
-)
+from function_encoder.function_encoder import FunctionEncoder, least_squares
+from function_encoder.utils.training import fit
 
 import matplotlib.pyplot as plt
 
@@ -53,7 +50,7 @@ def loss_function(model, point):
     return pred_loss + norm_loss
 
 
-model = train_model(model, ds["train"], loss_function)
+model = fit(model, ds["train"], loss_function)
 
 
 # Plot

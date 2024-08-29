@@ -13,7 +13,8 @@ import optax
 from datasets import load_dataset
 
 from function_encoder.model.neural_ode import NeuralODE
-from function_encoder.function_encoder import FunctionEncoder, train_model
+from function_encoder.function_encoder import FunctionEncoder
+from function_encoder.utils.training import fit
 
 import matplotlib.pyplot as plt
 
@@ -72,13 +73,13 @@ def loss_function(model, point):
     return pred_loss
 
 
-model = train_model(
+model = fit(
     model, ds["train"].take(100).map(partial(shorten_traj, length=10)), loss_function
 )
-model = train_model(
+model = fit(
     model, ds["train"].take(100).map(partial(shorten_traj, length=100)), loss_function
 )
-model = train_model(model, ds["train"].take(50), loss_function)
+model = fit(model, ds["train"].take(50), loss_function)
 
 
 # Plot

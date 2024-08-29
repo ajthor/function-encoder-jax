@@ -12,7 +12,8 @@ from datasets import load_dataset
 
 from function_encoder.model.mlp import MLP
 from function_encoder.losses import basis_normalization_loss
-from function_encoder.function_encoder import ResidualFunctionEncoder, train_model
+from function_encoder.function_encoder import ResidualFunctionEncoder
+from function_encoder.utils.training import fit
 
 import matplotlib.pyplot as plt
 
@@ -58,7 +59,7 @@ def loss_function(model, point):
     return pred_loss + norm_loss + res_loss
 
 
-model = train_model(model, ds["train"], loss_function)
+model = fit(model, ds["train"], loss_function)
 
 
 # Plot

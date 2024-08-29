@@ -47,7 +47,7 @@ class SVDOperatorEncoder(eqx.Module):
 
     def __call__(self, X: Array, coefficients: Array):
         """Forward pass."""
-        return jnp.real(self.target_encoder(X, coefficients))
+        return self.target_encoder(X, coefficients)
 
 
 class EigenOperatorEncoder(eqx.Module):

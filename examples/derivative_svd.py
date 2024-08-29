@@ -11,9 +11,9 @@ import optax
 from datasets import load_dataset
 
 
-from function_encoder.operator_encoder import SVDOperatorEncoder
-from function_encoder.function_encoder import train_model
 from function_encoder.losses import basis_orthogonality_loss
+from function_encoder.operator_encoder import SVDOperatorEncoder
+from function_encoder.utils.training import fit
 
 import matplotlib.pyplot as plt
 
@@ -53,7 +53,7 @@ def loss_function(model, point):
     return pred_loss + source_orth_loss + target_orth_loss
 
 
-model = train_model(model, ds["train"], loss_function)
+model = fit(model, ds["train"], loss_function)
 
 
 # Plot

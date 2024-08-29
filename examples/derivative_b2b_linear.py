@@ -11,7 +11,8 @@ import equinox as eqx
 import optax
 
 from function_encoder.losses import basis_normalization_loss
-from function_encoder.function_encoder import FunctionEncoder, train_model
+from function_encoder.function_encoder import FunctionEncoder
+from function_encoder.utils.training import fit
 
 import matplotlib.pyplot as plt
 
@@ -27,14 +28,14 @@ rng = random.PRNGKey(0)
 source_key, target_key, operator_key = random.split(rng, 3)
 
 source_encoder = FunctionEncoder(
-    basis_size=50,
+    basis_size=8,
     layer_sizes=(1, 32, 1),
     activation_function=jax.nn.tanh,
     key=source_key,
 )
 
 target_encoder = FunctionEncoder(
-    basis_size=50,
+    basis_size=8,
     layer_sizes=(1, 32, 1),
     activation_function=jax.nn.tanh,
     key=target_key,
@@ -55,7 +56,7 @@ def source_loss_function(model, point):
     return pred_loss + norm_loss
 
 
-source_encoder = train_model(source_encoder, ds["train"], source_loss_function)
+source_encoder = fit(source_encoder, ds["train"], source_loss_function)
 
 
 # Train the target encoder.
@@ -69,7 +70,7 @@ def target_loss_function(model, point):
     return pred_loss + norm_loss
 
 
-target_encoder = train_model(target_encoder, ds["train"], target_loss_function)
+target_encoder = fit(target_encoder, ds["train"], target_loss_function)
 
 # Train the operator.
 ds_subset = ds["train"].take(1000)
@@ -117,15 +118,4 @@ ax.plot(Y, Tf, label="True")
 ax.plot(Y, Tf_pred, label="Predicted")
 
 ax.legend()
-plt.show()
-
-
-# Plot the singular values of the operator.
-singular_values = jnp.linalg.svd(operator, compute_uv=False)
-
-fig = plt.figure()
-ax = fig.add_subplot(111)
-
-ax.plot(singular_values, marker="o")
-
 plt.show()

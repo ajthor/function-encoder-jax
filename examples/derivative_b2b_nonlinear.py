@@ -12,7 +12,8 @@ import optax
 
 from function_encoder.model.mlp import MLP
 from function_encoder.losses import basis_normalization_loss
-from function_encoder.function_encoder import FunctionEncoder, train_model
+from function_encoder.function_encoder import FunctionEncoder
+from function_encoder.utils.training import fit
 
 import matplotlib.pyplot as plt
 
@@ -64,7 +65,7 @@ def source_loss_function(model, point):
     return pred_loss + norm_loss
 
 
-source_encoder = train_model(source_encoder, ds["train"], source_loss_function)
+source_encoder = fit(source_encoder, ds["train"], source_loss_function)
 
 
 # Train the target encoder.
@@ -78,7 +79,7 @@ def target_loss_function(model, point):
     return pred_loss + norm_loss
 
 
-target_encoder = train_model(target_encoder, ds["train"], target_loss_function)
+target_encoder = fit(target_encoder, ds["train"], target_loss_function)
 
 
 # Train the operator.
@@ -95,7 +96,7 @@ def operator_loss_function(model, point):
     return optax.squared_error(target_coefficients_pred, target_coefficients).mean()
 
 
-operator = train_model(operator, ds["train"], operator_loss_function)
+operator = fit(operator, ds["train"], operator_loss_function)
 
 
 # Plot
