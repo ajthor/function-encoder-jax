@@ -31,13 +31,14 @@ class MLP(eqx.Module):
             params.append((w, b))
 
         # Initialize the output layer
-        key, w_key = random.split(key)
+        key, w_key, b_key = random.split(key, 3)
         C = jnp.sqrt(1 / layer_sizes[-2])
         w = random.uniform(
             w_key, (layer_sizes[-2], layer_sizes[-1]), minval=-C, maxval=C
         )
+        b = random.uniform(b_key, (layer_sizes[-1],), minval=-C, maxval=C)
 
-        params.append((w,))
+        params.append((w, b))
 
         self.params = tuple(params)
         self.activation_function = activation_function
@@ -49,8 +50,7 @@ class MLP(eqx.Module):
             y = jnp.dot(X, w) + b
             X = self.activation_function(y)
 
-        (w,) = self.params[-1]
-
-        y = jnp.dot(X, w)
+        w, b = self.params[-1]
+        y = jnp.dot(X, w) + b
 
         return y

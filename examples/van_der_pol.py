@@ -43,12 +43,6 @@ model = FunctionEncoder(
     key=model_key,
 )
 
-# model = NeuralODE(
-#     layer_sizes=(3, 64, 2),
-#     activation_function=jax.nn.tanh,
-#     key=model_key,
-# )
-
 
 def predict_trajectory(f, y0, ts):
     """Computes a trajectory from an initial condition y0 at times ts."""

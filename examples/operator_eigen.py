@@ -30,7 +30,7 @@ rng, key = random.split(rng)
 
 model = EigenOperatorEncoder(
     basis_size=8,
-    layer_sizes=(1, 32, 1),
+    layer_sizes=(1, 64, 64, 1),
     activation_function=jax.nn.tanh,
     key=key,
 )

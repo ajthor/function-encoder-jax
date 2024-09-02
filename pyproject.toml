@@ -3,7 +3,7 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "function-encoder"
+name = "function_encoder"
 version = "0.0.1"
 description = "Function encoder."
 readme = "README.md"
