@@ -76,6 +76,7 @@ class ResidualFunctionEncoder(FunctionEncoder):
         *args,
         basis_type: type = MLP,
         coefficients_method: Callable = least_squares,
+        inner_product: Callable = L2,
         key: random.PRNGKey,
         **kwargs,
     ):
@@ -85,6 +86,7 @@ class ResidualFunctionEncoder(FunctionEncoder):
             basis_size=basis_size,
             basis_type=basis_type,
             coefficients_method=coefficients_method,
+            inner_product=inner_product,
             key=fe_key,
             **kwargs,
         )
