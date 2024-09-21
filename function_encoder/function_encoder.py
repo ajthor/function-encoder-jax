@@ -9,27 +9,8 @@ import lineax as lx
 from jaxtyping import Array, PRNGKeyArray
 
 from function_encoder.model.mlp import MLP
-
-
-def monte_carlo_integration(G: Array, y: Array):
-    """Compute the coefficients using Monte Carlo integration."""
-    F = jnp.einsum("mkd,md->k", G, y)
-    return F / (y.shape[0] ** 2)
-
-
-def least_squares(G: Array, y: Array, reg: float = 1e-9):
-    """Compute the coefficients using least squares."""
-    F = jnp.einsum("mkd,md->k", G, y) / y.shape[0]
-    K = jnp.einsum("mkd,mld->kl", G, G) / y.shape[0]
-    K = K.at[jnp.diag_indices_from(K)].add(reg)
-
-    coefficients = jnp.linalg.solve(K, F)
-    return coefficients
-
-    # operator = lx.MatrixLinearOperator(K)
-    # coefficients_solution = lx.linear_solve(operator, F)
-
-    # return coefficients_solution.value
+from function_encoder.coefficients import least_squares
+from function_encoder.inner_products import L2
 
 
 class BasisFunctions(eqx.Module):
@@ -57,21 +38,24 @@ class BasisFunctions(eqx.Module):
 class FunctionEncoder(eqx.Module):
     basis_functions: BasisFunctions
     coefficients_method: Callable
+    inner_product: Callable
 
     def __init__(
         self,
         *args,
         coefficients_method: Callable = least_squares,
+        inner_product: Callable = L2,
         key: random.PRNGKey,
         **kwargs,
     ):
         self.basis_functions = BasisFunctions(*args, key=key, **kwargs)
         self.coefficients_method = coefficients_method
+        self.inner_product = inner_product
 
     def compute_coefficients(self, example_X: Array, example_y: Array):
         """Compute the coefficients of the basis functions for the given data."""
         G = eqx.filter_vmap(self.basis_functions)(example_X)
-        coefficients = self.coefficients_method(G, example_y)
+        coefficients = self.coefficients_method(G, example_y, self.inner_product)
 
         return coefficients
 
