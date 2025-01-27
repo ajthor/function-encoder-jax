@@ -7,3 +7,16 @@ name = "function_encoder"
 version = "0.0.1"
 description = "Function encoder."
 readme = "README.md"
+
+dependencies = [
+    "numpy",
+    "scipy",
+    "jax",
+    "jaxlib",
+    "equinox",
+    "lineax",
+    "jaxtyping",
+    "optax",
+    "diffrax",
+    "tqdm",
+]
