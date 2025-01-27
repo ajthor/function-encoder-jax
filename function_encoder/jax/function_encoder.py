@@ -8,9 +8,9 @@ import lineax as lx
 
 from jaxtyping import Array, PRNGKeyArray
 
-from function_encoder.model.mlp import MLP
-from function_encoder.coefficients import least_squares
-from function_encoder.inner_products import L2
+from function_encoder.jax.model.mlp import MLP
+from function_encoder.jax.coefficients import least_squares
+from function_encoder.jax.inner_products import L2
 
 
 class BasisFunctions(eqx.Module):

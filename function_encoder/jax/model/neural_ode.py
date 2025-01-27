@@ -12,7 +12,7 @@ import diffrax
 
 from jaxtyping import Array
 
-from function_encoder.model.mlp import MLP
+from function_encoder.jax.model.mlp import MLP
 
 
 class Dynamics(eqx.Module):

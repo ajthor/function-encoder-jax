@@ -12,9 +12,9 @@ import optax
 
 from datasets import load_dataset
 
-from function_encoder.losses import basis_normalization_loss
-from function_encoder.function_encoder import FunctionEncoder, least_squares
-from function_encoder.utils.training import fit
+from function_encoder.jax.losses import basis_normalization_loss
+from function_encoder.jax.function_encoder import FunctionEncoder, least_squares
+from function_encoder.jax.utils.training import fit
 
 import matplotlib.pyplot as plt
 

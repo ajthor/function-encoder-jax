@@ -12,9 +12,9 @@ import optax
 
 from datasets import load_dataset
 
-from function_encoder.model.neural_ode import NeuralODE
-from function_encoder.function_encoder import FunctionEncoder
-from function_encoder.utils.training import fit
+from function_encoder.jax.model.neural_ode import NeuralODE
+from function_encoder.jax.function_encoder import FunctionEncoder
+from function_encoder.jax.utils.training import fit
 
 import matplotlib.pyplot as plt
 

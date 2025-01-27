@@ -8,8 +8,8 @@ import optax
 
 from jaxtyping import Array, PRNGKeyArray
 
-from function_encoder.model.mlp import MLP
-from function_encoder.function_encoder import FunctionEncoder
+from function_encoder.jax.model.mlp import MLP
+from function_encoder.jax.function_encoder import FunctionEncoder
 
 import tqdm
 

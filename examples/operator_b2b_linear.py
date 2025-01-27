@@ -10,9 +10,9 @@ from datasets import load_dataset
 import equinox as eqx
 import optax
 
-from function_encoder.losses import basis_normalization_loss
-from function_encoder.function_encoder import FunctionEncoder
-from function_encoder.utils.training import fit
+from function_encoder.jax.losses import basis_normalization_loss
+from function_encoder.jax.function_encoder import FunctionEncoder
+from function_encoder.jax.utils.training import fit
 
 import matplotlib.pyplot as plt
 

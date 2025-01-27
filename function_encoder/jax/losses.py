@@ -5,7 +5,7 @@ from jaxtyping import Array
 
 import equinox as eqx
 
-from function_encoder.function_encoder import BasisFunctions
+from function_encoder.jax.function_encoder import BasisFunctions
 
 
 def basis_orthogonality_loss(basis_functions: BasisFunctions, X: Array):

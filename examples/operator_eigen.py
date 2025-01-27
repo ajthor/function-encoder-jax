@@ -11,9 +11,9 @@ import optax
 from datasets import load_dataset
 
 
-from function_encoder.losses import basis_orthogonality_loss
-from function_encoder.operator_encoder import EigenOperatorEncoder
-from function_encoder.utils.training import fit
+from function_encoder.jax.losses import basis_orthogonality_loss
+from function_encoder.jax.operator_encoder import EigenOperatorEncoder
+from function_encoder.jax.utils.training import fit
 
 import matplotlib.pyplot as plt
 

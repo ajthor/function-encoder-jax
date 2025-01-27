@@ -3,7 +3,7 @@ from typing import Callable
 import equinox as eqx
 import optax
 
-from function_encoder.function_encoder import FunctionEncoder
+from function_encoder.jax.function_encoder import FunctionEncoder
 
 import tqdm
 
