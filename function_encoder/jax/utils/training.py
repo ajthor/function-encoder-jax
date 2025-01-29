@@ -30,8 +30,8 @@ def fit(
         model = eqx.apply_updates(model, updates)
         return model, opt_state, loss
 
-    with tqdm.tqdm(enumerate(ds)) as tqdm_bar:
-        for i, point in tqdm_bar:
+    with tqdm.tqdm(ds) as tqdm_bar:
+        for i, point in enumerate(tqdm_bar):
             model, opt_state, loss = update(model, point, opt_state)
 
             if i % 10 == 0:
