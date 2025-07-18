@@ -1,40 +1,56 @@
-from typing import Callable
+from typing import Callable, Tuple, Iterable, Any
 
 import equinox as eqx
 import optax
-
-from function_encoder.jax.function_encoder import FunctionEncoder
-
-import tqdm
+from jaxtyping import Float, Scalar
 
 
-def fit(
-    model: FunctionEncoder,
-    ds,
-    loss_function: Callable,
-    learning_rate: float = 1e-3,
-    gradient_accumulation_steps: int = 50,
-):
-    opt = optax.chain(
-        optax.clip_by_global_norm(1.0),
-        optax.adam(learning_rate=learning_rate),
-    )
-    # Gradient accumulation
-    opt = optax.MultiSteps(opt, every_k_schedule=gradient_accumulation_steps)
-    opt_state = opt.init(eqx.filter(model, eqx.is_inexact_array))
+def train_step(
+    model: eqx.Module,
+    optimizer: optax.GradientTransformation,
+    opt_state: optax.OptState,
+    point: Any,
+    loss_function: Callable[[eqx.Module, Any], Scalar],
+) -> Tuple[eqx.Module, optax.OptState, Float]:
+    """Perform a single training step.
 
-    @eqx.filter_jit
-    def update(model, point, opt_state):
-        loss, grads = eqx.filter_value_and_grad(loss_function)(model, point)
-        updates, opt_state = opt.update(grads, opt_state)
-        model = eqx.apply_updates(model, updates)
-        return model, opt_state, loss
+    Args:
+        model: The model to train
+        optimizer: Optax optimizer
+        opt_state: Optimizer state
+        point: Training point (single function's input/output pairs)
+        loss_function: Function that computes loss given (model, point)
 
-    with tqdm.tqdm(ds) as tqdm_bar:
-        for i, point in enumerate(tqdm_bar):
-            model, opt_state, loss = update(model, point, opt_state)
+    Returns:
+        Tuple of (updated_model, updated_opt_state, loss_value)
+    """
+    loss, grads = eqx.filter_value_and_grad(loss_function)(model, point)
+    updates, opt_state = optimizer.update(grads, opt_state)
+    model = eqx.apply_updates(model, updates)
+    return model, opt_state, loss
 
-            if i % 10 == 0:
-                tqdm_bar.set_postfix_str(f"Loss: {loss:.2e}")
 
-    return model
+def test_eval(
+    model: eqx.Module,
+    dataset: Iterable[Any],
+    loss_function: Callable[[eqx.Module, Any], Scalar],
+) -> Float:
+    """Evaluate model on entire dataset and return average loss.
+
+    Args:
+        model: The model to evaluate
+        dataset: Dataset to evaluate on (iterable of function input/output pairs)
+        loss_function: Function that computes loss given (model, point)
+
+    Returns:
+        Average loss across all points in the dataset
+    """
+    total_loss = 0.0
+    count = 0
+    
+    for point in dataset:
+        loss = loss_function(model, point)
+        total_loss += loss
+        count += 1
+    
+    return total_loss / count if count > 0 else 0.0

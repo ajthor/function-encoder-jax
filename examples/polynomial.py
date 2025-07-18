@@ -12,7 +12,9 @@ from datasets import load_dataset
 
 from function_encoder.jax.losses import basis_normalization_loss
 from function_encoder.jax.function_encoder import FunctionEncoder, BasisFunctions
-from function_encoder.jax.utils.training import fit
+from function_encoder.jax.utils.training import train_step
+
+import tqdm
 
 import matplotlib.pyplot as plt
 
@@ -45,7 +47,28 @@ def loss_function(model, point):
     return pred_loss + norm_loss
 
 
-model = fit(model, ds["train"], loss_function)
+# model = fit(model, ds["train"], loss_function)
+opt = optax.MultiSteps(
+    optax.chain(
+        optax.clip_by_global_norm(1.0),
+        optax.adam(1e-3),
+    ),
+    every_k_schedule=50
+)
+opt_state = opt.init(eqx.filter(model, eqx.is_inexact_array))
+
+
+@eqx.filter_jit
+def update(model, point, opt_state):
+    return train_step(model, opt, opt_state, point, loss_function)
+
+
+with tqdm.tqdm(ds["train"]) as tqdm_bar:
+    for i, point in enumerate(tqdm_bar):
+        model, opt_state, loss = update(model, point, opt_state)
+
+        if i % 10 == 0:
+            tqdm_bar.set_postfix_str(f"Loss: {loss:.2e}")
 
 
 # Plot
