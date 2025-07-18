@@ -47,7 +47,9 @@ target_encoder = FunctionEncoder(
 
 # Train the source encoder.
 def source_loss_function(model, point):
-    coefficients = model.compute_coefficients(point["X"][:, None], point["f"][:, None])
+    coefficients, _ = model.compute_coefficients(
+        point["X"][:, None], point["f"][:, None]
+    )
     f_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
         point["X"][:, None], coefficients
     )
@@ -61,7 +63,9 @@ source_encoder = fit(source_encoder, ds["train"], source_loss_function)
 
 # Train the target encoder.
 def target_loss_function(model, point):
-    coefficients = model.compute_coefficients(point["Y"][:, None], point["Tf"][:, None])
+    coefficients, _ = model.compute_coefficients(
+        point["Y"][:, None], point["Tf"][:, None]
+    )
     Tf_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
         point["Y"][:, None], coefficients
     )
@@ -75,10 +79,10 @@ target_encoder = fit(target_encoder, ds["train"], target_loss_function)
 # Train the operator.
 ds_subset = ds["train"].take(1000)
 
-source_coefficients = eqx.filter_vmap(source_encoder.compute_coefficients)(
+source_coefficients, _ = eqx.filter_vmap(source_encoder.compute_coefficients)(
     ds_subset["X"][:, :, None], ds_subset["f"][:, :, None]
 )
-target_coefficients = eqx.filter_vmap(target_encoder.compute_coefficients)(
+target_coefficients, _ = eqx.filter_vmap(target_encoder.compute_coefficients)(
     ds_subset["Y"][:, :, None], ds_subset["Tf"][:, :, None]
 )
 
@@ -102,7 +106,7 @@ idx = jnp.argsort(Y, axis=0).flatten()
 Y = Y[idx]
 Tf = Tf[idx]
 
-source_coefficients = source_encoder.compute_coefficients(X, f)
+source_coefficients, _ = source_encoder.compute_coefficients(X, f)
 target_coefficients = jnp.dot(source_coefficients, operator)
 Tf_pred = eqx.filter_vmap(target_encoder, in_axes=(eqx.if_array(0), None))(
     Y, target_coefficients

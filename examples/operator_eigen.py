@@ -39,7 +39,9 @@ model = EigenOperatorEncoder(
 
 
 def loss_function(model, point):
-    coefficients = model.compute_coefficients(point["X"][:, None], point["f"][:, None])
+    coefficients, _ = model.compute_coefficients(
+        point["X"][:, None], point["f"][:, None]
+    )
     Tf_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
         point["Y"][:, None], coefficients
     )
@@ -70,7 +72,7 @@ idx = jnp.argsort(Y, axis=0).flatten()
 Y = Y[idx]
 Tf = Tf[idx]
 
-coefficients = model.compute_coefficients(X, f)
+coefficients, _ = model.compute_coefficients(X, f)
 Tf_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(Y, coefficients)
 
 fig = plt.figure()

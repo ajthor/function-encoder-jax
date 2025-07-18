@@ -61,7 +61,7 @@ def loss_function(model, point):
     t = point["t"].astype(jnp.float64)
     x = point["x"].astype(jnp.float64)
     ts = jnp.hstack([t[:-1, None], t[1:, None]])
-    coefficients = model.compute_coefficients((x[:-1], ts), x[1:])
+    coefficients, _ = model.compute_coefficients((x[:-1], ts), x[1:])
     y_pred = predict_trajectory(partial(model, coefficients=coefficients), x[0], ts)[1]
     pred_loss = optax.squared_error(x[1:], y_pred).mean()
     return pred_loss
@@ -84,7 +84,7 @@ x = point["x"].astype(jnp.float64)
 
 # y_pred = model((point["x"][0], point["t"]))
 ts = jnp.hstack([t[:-1, None], t[1:, None]])
-coefficients = model.compute_coefficients((x[:-1], ts), x[1:])
+coefficients, _ = model.compute_coefficients((x[:-1], ts), x[1:])
 y_pred = predict_trajectory(partial(model, coefficients=coefficients), x[0], ts)[1]
 
 fig = plt.figure()

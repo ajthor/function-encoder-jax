@@ -10,7 +10,7 @@ from jaxtyping import Array, PRNGKeyArray
 
 from function_encoder.jax.model.mlp import MLP
 from function_encoder.jax.coefficients import least_squares
-from function_encoder.jax.inner_products import L2
+from function_encoder.jax.inner_products import standard_inner_product
 
 
 class BasisFunctions(eqx.Module):
@@ -42,27 +42,25 @@ class FunctionEncoder(eqx.Module):
 
     def __init__(
         self,
-        *args,
+        basis_functions: BasisFunctions,
         coefficients_method: Callable = least_squares,
-        inner_product: Callable = L2,
-        key: random.PRNGKey,
-        **kwargs,
+        inner_product: Callable = standard_inner_product,
     ):
-        self.basis_functions = BasisFunctions(*args, key=key, **kwargs)
+        self.basis_functions = basis_functions
         self.coefficients_method = coefficients_method
         self.inner_product = inner_product
 
     def compute_coefficients(self, example_X: Array, example_y: Array):
         """Compute the coefficients of the basis functions for the given data."""
-        G = eqx.filter_vmap(self.basis_functions)(example_X)
-        coefficients = self.coefficients_method(G, example_y, self.inner_product)
+        g = eqx.filter_vmap(self.basis_functions)(example_X)
+        coefficients, G = self.coefficients_method(g, example_y, self.inner_product)
 
-        return coefficients
+        return coefficients, G
 
     def __call__(self, X: Array, coefficients: Array):
         """Compute the function approximation."""
-        G = self.basis_functions(X)
-        y = jnp.einsum("kd,k->d", G, coefficients)
+        g = self.basis_functions(X)
+        y = coefficients @ g
 
         return y
 
@@ -76,7 +74,7 @@ class ResidualFunctionEncoder(FunctionEncoder):
         *args,
         basis_type: type = MLP,
         coefficients_method: Callable = least_squares,
-        inner_product: Callable = L2,
+        inner_product: Callable = standard_inner_product,
         key: random.PRNGKey,
         **kwargs,
     ):
@@ -96,9 +94,9 @@ class ResidualFunctionEncoder(FunctionEncoder):
     def compute_coefficients(self, example_X: Array, example_y: Array):
         """Compute the coefficients of the basis functions for the given data."""
         avg = eqx.filter_vmap(self.average_function)(example_X)
-        coefficients = super().compute_coefficients(example_X, example_y - avg)
+        coefficients, G = super().compute_coefficients(example_X, example_y - avg)
 
-        return coefficients
+        return coefficients, G
 
     def __call__(self, X: Array, coefficients: Array):
         """Compute the function approximation."""

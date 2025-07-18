@@ -50,7 +50,9 @@ def loss_function(model, point):
     res_pred = eqx.filter_vmap(model.average_function)(point["X"][:, None])
     res_loss = optax.squared_error(point["y"][:, None], res_pred).mean()
 
-    coefficients = model.compute_coefficients(point["X"][:, None], point["y"][:, None])
+    coefficients, _ = model.compute_coefficients(
+        point["X"][:, None], point["y"][:, None]
+    )
     y_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
         point["X"][:, None], coefficients
     )
@@ -73,7 +75,7 @@ idx = jnp.argsort(X, axis=0).flatten()
 X = X[idx]
 y = y[idx]
 
-coefficients = model.compute_coefficients(X, y)
+coefficients, _ = model.compute_coefficients(X, y)
 y_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(X, coefficients)
 
 fig = plt.figure()

@@ -40,9 +40,10 @@ class SVDOperatorEncoder(eqx.Module):
 
     def compute_coefficients(self, example_X: Array, example_y: Array):
         """Compute the coefficients of the basis functions for the given data."""
-        coefficients = self.source_encoder.compute_coefficients(example_X, example_y)
-        return coefficients * jnp.abs(
-            self.singular_values
+        coefficients, G = self.source_encoder.compute_coefficients(example_X, example_y)
+        return (
+            coefficients * jnp.abs(self.singular_values),
+            G,
         )  # Ensure positive singular values
 
     def __call__(self, X: Array, coefficients: Array):
@@ -71,8 +72,10 @@ class EigenOperatorEncoder(eqx.Module):
 
     def compute_coefficients(self, example_X: Array, example_y: Array):
         """Compute the coefficients of the basis functions for the given data."""
-        coefficients = self.function_encoder.compute_coefficients(example_X, example_y)
-        return coefficients * self.eigenvalues
+        coefficients, G = self.function_encoder.compute_coefficients(
+            example_X, example_y
+        )
+        return coefficients * self.eigenvalues, G
 
     def __call__(self, X: Array, coefficients: Array):
         """Forward pass."""

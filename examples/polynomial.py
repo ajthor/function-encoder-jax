@@ -11,7 +11,7 @@ import optax
 from datasets import load_dataset
 
 from function_encoder.jax.losses import basis_normalization_loss
-from function_encoder.jax.function_encoder import FunctionEncoder
+from function_encoder.jax.function_encoder import FunctionEncoder, BasisFunctions
 from function_encoder.jax.utils.training import fit
 
 import matplotlib.pyplot as plt
@@ -27,18 +27,16 @@ ds = ds.with_format("jax")
 rng = random.PRNGKey(0)
 rng, key = random.split(rng)
 
-model = FunctionEncoder(
-    basis_size=8,
-    layer_sizes=(1, 32, 1),
-    activation_function=jax.nn.tanh,
-    key=key,
-)
+basis_functions = BasisFunctions(basis_size=8, layer_sizes=(1, 32, 1), key=key)
+model = FunctionEncoder(basis_functions=basis_functions)
 
 # Train
 
 
 def loss_function(model, point):
-    coefficients = model.compute_coefficients(point["X"][:, None], point["y"][:, None])
+    coefficients, _ = model.compute_coefficients(
+        point["X"][:, None], point["y"][:, None]
+    )
     y_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
         point["X"][:, None], coefficients
     )
@@ -61,7 +59,7 @@ idx = jnp.argsort(X, axis=0).flatten()
 X = X[idx]
 y = y[idx]
 
-coefficients = model.compute_coefficients(X, y)
+coefficients, _ = model.compute_coefficients(X, y)
 y_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(X, coefficients)
 
 fig = plt.figure()

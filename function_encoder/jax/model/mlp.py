@@ -1,5 +1,6 @@
 from typing import Callable, Tuple
 
+import jax
 from jax import random
 import jax.numpy as jnp
 from jaxtyping import Array
@@ -9,13 +10,13 @@ import equinox as eqx
 
 class MLP(eqx.Module):
     params: Tuple
-    activation_function: Callable = jnp.tanh
+    activation_function: Callable = jax.nn.relu
 
     def __init__(
         self,
         layer_sizes: Tuple[int, ...],
-        activation_function: Callable,
         *,
+        activation_function: Callable = jax.nn.relu,
         key: random.PRNGKey,
     ):
 

@@ -6,17 +6,49 @@ from jaxtyping import Array
 
 
 def euclidean_inner_product(x: Array, y: Array):
-    """Compute the inner product."""
+    """Compute the Euclidean inner product between two vectors.
+
+    Args:
+        x: Vector of shape (d,)
+        y: Vector of shape (d,)
+
+    Returns:
+        Scalar inner product <x, y>
+    """
     return jnp.dot(x, y)
 
 
-def L2(x: Array, y: Array):
-    """Compute the inner product."""
-    return eqx.filter_vmap(euclidean_inner_product, in_axes=(0, 0))(x, y).mean()
+def standard_inner_product(f: Array, g: Array):
+    """Compute the standard inner product between two sets of vectors.
+
+    Takes two sets of vectors, computes the inner product between each pair,
+    and returns the average over all pairs.
+
+    Args:
+        f: Array of shape (m, d) representing m vectors of dimension d
+        g: Array of shape (m, d) representing m vectors of dimension d
+
+    Returns:
+        Scalar representing the average inner product
+    """
+    return eqx.filter_vmap(euclidean_inner_product, in_axes=(0, 0))(f, g).mean()
 
 
-def logit_inner_product(x: Array, y: Array):
-    """Compute the inner product."""
-    _x = x - x.mean(axis=0)
-    _y = y - y.mean(axis=0)
-    return eqx.filter_vmap(euclidean_inner_product, in_axes=(0, 0))(_x, _y).mean()
+def centered_inner_product(f: Array, g: Array):
+    """Compute the centered inner product between two sets of vectors.
+
+    Centers both sets of vectors by subtracting their mean, then computes
+    the inner product between each pair and returns the average.
+
+    Args:
+        f: Array of shape (m, d) representing m vectors of dimension d
+        g: Array of shape (m, d) representing m vectors of dimension d
+
+    Returns:
+        Scalar representing the average centered inner product
+    """
+    f_centered = f - f.mean(axis=0)
+    g_centered = g - g.mean(axis=0)
+    return eqx.filter_vmap(euclidean_inner_product, in_axes=(0, 0))(
+        f_centered, g_centered
+    ).mean()
