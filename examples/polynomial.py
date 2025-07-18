@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import equinox as eqx
 import optax
 
-from datasets import load_dataset
+from datasets.polynomial import PolynomialDataset
 
 from function_encoder.jax.losses import basis_normalization_loss
 from function_encoder.jax.function_encoder import FunctionEncoder, BasisFunctions
@@ -20,9 +20,8 @@ import matplotlib.pyplot as plt
 
 # Load dataset
 
-ds = load_dataset("ajthor/polynomial")
-ds = ds.with_format("jax")
-
+dataset = PolynomialDataset(n_points=100, n_example_points=10)
+# batch_function = lambda key: eqx.filter_vmap(dataset)(random.split(key, 1))
 
 # Create model
 
@@ -36,53 +35,49 @@ model = FunctionEncoder(basis_functions=basis_functions)
 
 
 def loss_function(model, point):
-    coefficients, G = model.compute_coefficients(
-        point["X"][:, None], point["y"][:, None]
-    )
-    y_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
-        point["X"][:, None], coefficients
-    )
-    pred_loss = optax.squared_error(point["y"][:, None], y_pred).mean()
+    X, y, example_X, example_y = point
+    coefficients, G = model.compute_coefficients(example_X, example_y)
+    y_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(X, coefficients)
+    pred_loss = optax.squared_error(y, y_pred).mean()
     norm_loss = basis_normalization_loss(G)
     return pred_loss + norm_loss
 
 
 # model = fit(model, ds["train"], loss_function)
+every_k_schedule = 50
 opt = optax.MultiSteps(
     optax.chain(
         optax.clip_by_global_norm(1.0),
         optax.adam(1e-3),
     ),
-    every_k_schedule=50
+    every_k_schedule=every_k_schedule,
 )
 opt_state = opt.init(eqx.filter(model, eqx.is_inexact_array))
 
+num_epochs = 1000
+update = eqx.filter_jit(train_step)
+with tqdm.tqdm(range(num_epochs * every_k_schedule)) as tqdm_bar:
+    for epoch in tqdm_bar:
+        rng, key = random.split(rng)
+        point = dataset(key)
+        model, opt_state, loss = update(model, opt, opt_state, point, loss_function)
 
-@eqx.filter_jit
-def update(model, point, opt_state):
-    return train_step(model, opt, opt_state, point, loss_function)
-
-
-with tqdm.tqdm(ds["train"]) as tqdm_bar:
-    for i, point in enumerate(tqdm_bar):
-        model, opt_state, loss = update(model, point, opt_state)
-
-        if i % 10 == 0:
+        if epoch % 10 == 0:
             tqdm_bar.set_postfix_str(f"Loss: {loss:.2e}")
 
 
 # Plot
 
-point = ds["train"].take(1)[0]
+rng, key = random.split(rng)
+point = dataset(key)
 
-X = point["X"][:, None]
-y = point["y"][:, None]
+X, y, example_X, example_y = point
 
 idx = jnp.argsort(X, axis=0).flatten()
 X = X[idx]
 y = y[idx]
 
-coefficients, _ = model.compute_coefficients(X, y)
+coefficients, _ = model.compute_coefficients(example_X, example_y)
 y_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(X, coefficients)
 
 fig = plt.figure()
