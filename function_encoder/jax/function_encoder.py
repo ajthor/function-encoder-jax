@@ -1,10 +1,8 @@
 from typing import Callable
 
 from jax import random
-import jax.numpy as jnp
 
 import equinox as eqx
-import lineax as lx
 
 from jaxtyping import Array, PRNGKeyArray
 

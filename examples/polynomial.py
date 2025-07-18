@@ -34,14 +34,14 @@ model = FunctionEncoder(basis_functions=basis_functions)
 
 
 def loss_function(model, point):
-    coefficients, _ = model.compute_coefficients(
+    coefficients, G = model.compute_coefficients(
         point["X"][:, None], point["y"][:, None]
     )
     y_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
         point["X"][:, None], coefficients
     )
     pred_loss = optax.squared_error(point["y"][:, None], y_pred).mean()
-    norm_loss = basis_normalization_loss(model.basis_functions, point["X"][:, None])
+    norm_loss = basis_normalization_loss(G)
     return pred_loss + norm_loss
 
 
