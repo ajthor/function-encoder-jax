@@ -1,7 +1,7 @@
 from typing import Callable, Optional, Tuple, Union, Any
 import jax
 
-jax.config.update("jax_enable_x64", True)
+# jax.config.update("jax_enable_x64", True)
 
 from jax import random
 import jax.numpy as jnp
@@ -136,7 +136,7 @@ for i in range(3):
             maxval=dataset.y0_range[1],
         )
         # We use the coefficients that we computed before
-        _c = coefficients[idx : idx + 1]  # Keep batch dimension
+        _c = coefficients[idx]
         s = 0.1  # Time step for simulation
         n = int(10 / s)
         _dt = jnp.array([s])
@@ -146,22 +146,20 @@ for i in range(3):
             dx = rk4_step(van_der_pol, x, _dt[0], mu=_mu)
             x_next = x + dx
             return x_next, x_next
-        
+
         _, y_true = jax.lax.scan(true_step, _y0.squeeze(), None, length=n)
         y = jnp.concatenate([_y0.squeeze()[None, :], y_true])  # Include initial state
 
         # Integrate the predicted trajectory using scan
         def pred_step(x, _):
-            x_input = x[None, :]  # Add batch dimension for model call
-            dt_input = _dt[None, :]  # Add batch dimension for dt
-            x_next_delta = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
-                (x_input, dt_input), _c
-            )
+            x_next_delta = model((x, _dt[0]), _c)
             x_next = x + x_next_delta.squeeze()
             return x_next, x_next
-        
+
         _, pred_traj = jax.lax.scan(pred_step, _y0.squeeze(), None, length=n)
-        pred = jnp.concatenate([_y0.squeeze()[None, :], pred_traj])  # Include initial state
+        pred = jnp.concatenate(
+            [_y0.squeeze()[None, :], pred_traj]
+        )  # Include initial state
 
         ax[i, j].set_xlim(-5, 5)
         ax[i, j].set_ylim(-5, 5)

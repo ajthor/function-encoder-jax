@@ -3,6 +3,7 @@ datasets
 diffrax
 equinox
 jax
+# jax[cuda12]
 jaxlib
 jaxtyping
 lineax
