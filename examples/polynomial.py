@@ -1,9 +1,12 @@
+from functools import partial
+from typing import Callable, Tuple, Iterable, Any
 import jax
 
 jax.config.update("jax_enable_x64", True)
 
 from jax import random
 import jax.numpy as jnp
+from jaxtyping import Float, Scalar
 
 import equinox as eqx
 import optax
@@ -20,8 +23,22 @@ import matplotlib.pyplot as plt
 
 # Load dataset
 
-dataset = PolynomialDataset(n_points=100, n_example_points=10)
-dataset_jit = eqx.filter_jit(dataset)
+rng = random.PRNGKey(42)
+
+polynomial_dataset = PolynomialDataset(n_points=100, n_example_points=10)
+polynomial_dataset_jit = eqx.filter_jit(polynomial_dataset)
+
+
+def dataloader(batch_size: int = 50, *, rng: random.PRNGKey):
+    while True:
+        rng, key = random.split(rng)
+        keys = random.split(key, batch_size)
+        batch = eqx.filter_vmap(lambda key: polynomial_dataset_jit(key=key))(keys)
+        yield batch
+
+
+rng, dataset_key = random.split(rng)
+dataloader_iter = dataloader(batch_size=50, rng=dataset_key)
 
 # Create model
 
@@ -36,35 +53,43 @@ model = FunctionEncoder(basis_functions=basis_functions)
 # Train
 
 
-def loss_function(model, point):
-    X, y, example_X, example_y = point
-    coefficients, G = model.compute_coefficients(example_X, example_y)
+def compute_pred(model, X, coefficients):
     y_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(X, coefficients)
+    return y_pred
+
+
+@eqx.filter_value_and_grad
+def loss_function(model, batch):
+    X, y, example_X, example_y = batch
+    coefficients, G = eqx.filter_vmap(model.compute_coefficients, in_axes=(0, 0))(
+        example_X, example_y
+    )
+    y_pred = eqx.filter_vmap(compute_pred, in_axes=(None, 0, 0))(model, X, coefficients)
     pred_loss = optax.squared_error(y, y_pred).mean()
-    norm_loss = basis_normalization_loss(G)
-    return pred_loss + norm_loss
+    return pred_loss
 
 
-# model = fit(model, ds["train"], loss_function)
-every_k_schedule = 50
-opt = optax.MultiSteps(
-    optax.chain(
-        optax.clip_by_global_norm(1.0),
-        optax.adam(1e-3),
-    ),
-    every_k_schedule=every_k_schedule,
-)
+@eqx.filter_jit
+def train_step(
+    model: eqx.Module,
+    optimizer: optax.GradientTransformation,
+    opt_state: optax.OptState,
+    batch: Any,
+) -> Tuple[eqx.Module, optax.OptState, Float]:
+    loss, grads = loss_function(model, batch)
+    updates, opt_state = optimizer.update(grads, opt_state)
+    model = eqx.apply_updates(model, updates)
+    return model, opt_state, loss
+
+
+opt = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(1e-3))
 opt_state = opt.init(eqx.filter(model, eqx.is_inexact_array))
 
 num_epochs = 1000
-train_step_jit = eqx.filter_jit(train_step)
-with tqdm.tqdm(range(num_epochs * every_k_schedule)) as tqdm_bar:
+with tqdm.tqdm(range(num_epochs)) as tqdm_bar:
     for epoch in tqdm_bar:
-        rng, key = random.split(rng)
-        point = dataset_jit(key)
-        model, opt_state, loss = train_step_jit(
-            model, opt, opt_state, point, loss_function
-        )
+        batch = next(dataloader_iter)
+        model, opt_state, loss = train_step(model, opt, opt_state, batch)
 
         if epoch % 10 == 0:
             tqdm_bar.set_postfix_str(f"Loss: {loss:.2e}")
@@ -73,7 +98,7 @@ with tqdm.tqdm(range(num_epochs * every_k_schedule)) as tqdm_bar:
 # Plot
 
 rng, key = random.split(rng)
-point = dataset_jit(key)
+point = polynomial_dataset_jit(key)
 
 X, y, example_X, example_y = point
 

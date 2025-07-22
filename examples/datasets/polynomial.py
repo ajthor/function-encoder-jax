@@ -24,6 +24,40 @@ def polyval(coefficients: Array, X: Array) -> Array:
     return y
 
 
+# def polynomial_dataset(
+#     key: PRNGKeyArray,
+#     *,
+#     n_points: int = 100,
+#     n_example_points: int = 100,
+#     degree: int = 3,
+#     coeff_range: Tuple[float, float] = (-1.0, 1.0),
+# ) -> Tuple[Array, Array, Array, Array]:
+
+#     coefficients_key, x_key = random.split(key)
+
+#     coefficients = random.uniform(
+#         coefficients_key,
+#         (degree + 1,),
+#         minval=coeff_range[0],
+#         maxval=coeff_range[1],
+#     )
+
+#     _X = random.uniform(
+#         x_key,
+#         (n_example_points + n_points,),
+#         minval=-1.0,
+#         maxval=1.0,
+#     )
+#     _y = polyval(coefficients, _X)
+
+#     X = _X[n_example_points:]
+#     y = _y[n_example_points:]
+#     example_X = _X[:n_example_points]
+#     example_y = _y[:n_example_points]
+
+#     return X, y, example_X, example_y
+
+
 class PolynomialDataset(eqx.Module):
     """Equinox module for generating polynomial datasets.
 
