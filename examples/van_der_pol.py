@@ -49,7 +49,7 @@ def make_neural_ode(layer_sizes, *, key, **kwargs):
 
 rng, basis_key = random.split(rng)
 
-n_basis = 10
+n_basis = 3
 basis_functions = BasisFunctions(
     basis_size=n_basis,
     basis_type=make_neural_ode,
@@ -175,9 +175,3 @@ fig.legend(
 )
 
 plt.show()
-
-# Save the model (JAX equivalent - save pytree)
-import pickle
-
-with open("van_der_pol_model.pkl", "wb") as f:
-    pickle.dump(model, f)
