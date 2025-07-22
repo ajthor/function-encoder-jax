@@ -116,8 +116,10 @@ batch = jax.vmap(dataset)(plot_keys)
 
 mu, y0, dt, y1, y0_example, dt_example, y1_example = batch
 
-# Precompute the coefficients for the batch
-coefficients, G = model.compute_coefficients((y0_example, dt_example), y1_example)
+# Precompute the coefficients for the batch using vmap like in training
+coefficients, G = eqx.filter_vmap(model.compute_coefficients)(
+    (y0_example, dt_example), y1_example
+)
 
 fig, ax = plt.subplots(3, 3, figsize=(10, 10))
 
@@ -139,24 +141,27 @@ for i in range(3):
         n = int(10 / s)
         _dt = jnp.array([s])
 
-        # Integrate the true trajectory
-        x = _y0.squeeze()
-        y = [x]
-        for k in range(n):
+        # Integrate the true trajectory using scan
+        def true_step(x, _):
             dx = rk4_step(van_der_pol, x, _dt[0], mu=_mu)
-            x = x + dx
-            y.append(x)
-        y = jnp.stack(y)
+            x_next = x + dx
+            return x_next, x_next
+        
+        _, y_true = jax.lax.scan(true_step, _y0.squeeze(), None, length=n)
+        y = jnp.concatenate([_y0.squeeze()[None, :], y_true])  # Include initial state
 
-        # Integrate the predicted trajectory
-        x = _y0
-        _dt_batch = jnp.broadcast_to(_dt, (1,))
-        pred = [x]
-        for k in range(n):
-            x_next = model((x, _dt_batch), coefficients=_c)
-            x = x + x_next  # x_next is the change, not the full state
-            pred.append(x)
-        pred = jnp.concatenate(pred, axis=0)
+        # Integrate the predicted trajectory using scan
+        def pred_step(x, _):
+            x_input = x[None, :]  # Add batch dimension for model call
+            dt_input = _dt[None, :]  # Add batch dimension for dt
+            x_next_delta = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
+                (x_input, dt_input), _c
+            )
+            x_next = x + x_next_delta.squeeze()
+            return x_next, x_next
+        
+        _, pred_traj = jax.lax.scan(pred_step, _y0.squeeze(), None, length=n)
+        pred = jnp.concatenate([_y0.squeeze()[None, :], pred_traj])  # Include initial state
 
         ax[i, j].set_xlim(-5, 5)
         ax[i, j].set_ylim(-5, 5)
