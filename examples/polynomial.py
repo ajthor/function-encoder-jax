@@ -15,7 +15,6 @@ from datasets.polynomial import PolynomialDataset
 
 from function_encoder.jax.losses import basis_normalization_loss
 from function_encoder.jax.function_encoder import FunctionEncoder, BasisFunctions
-from function_encoder.jax.utils.training import train_step
 
 import tqdm
 
@@ -25,15 +24,15 @@ import matplotlib.pyplot as plt
 
 rng = random.PRNGKey(42)
 
-polynomial_dataset = PolynomialDataset(n_points=100, n_example_points=10)
-polynomial_dataset_jit = eqx.filter_jit(polynomial_dataset)
+dataset = PolynomialDataset(n_points=100, n_example_points=10)
+dataset_jit = eqx.filter_jit(dataset)
 
 
 def dataloader(batch_size: int = 50, *, rng: random.PRNGKey):
     while True:
         rng, key = random.split(rng)
         keys = random.split(key, batch_size)
-        batch = eqx.filter_vmap(lambda key: polynomial_dataset_jit(key=key))(keys)
+        batch = eqx.filter_vmap(lambda key: dataset_jit(key=key))(keys)
         yield batch
 
 
@@ -98,7 +97,7 @@ with tqdm.tqdm(range(num_epochs)) as tqdm_bar:
 # Plot
 
 rng, key = random.split(rng)
-point = polynomial_dataset_jit(key)
+point = dataset_jit(key)
 
 X, y, example_X, example_y = point
 

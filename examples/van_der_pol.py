@@ -1,101 +1,180 @@
-from functools import partial
-
+from typing import Callable, Optional, Tuple, Union, Any
 import jax
 
 jax.config.update("jax_enable_x64", True)
 
 from jax import random
 import jax.numpy as jnp
+from jaxtyping import Float, Scalar
 
-import diffrax
+import equinox as eqx
 import optax
 
-from datasets import load_dataset
+from datasets.van_der_pol import VanDerPolDataset, van_der_pol
 
-from function_encoder.jax.model.neural_ode import NeuralODE
-from function_encoder.jax.function_encoder import FunctionEncoder
-from function_encoder.jax.utils.training import fit
+from function_encoder.jax.model.mlp import MLP
+from function_encoder.jax.model.neural_ode import NeuralODE, ODEFunc, rk4_step
+from function_encoder.jax.function_encoder import BasisFunctions, FunctionEncoder
 
 import matplotlib.pyplot as plt
+import tqdm
 
 # Load dataset
+rng = random.PRNGKey(42)
 
-ds = load_dataset("ajthor/van_der_pol")
-ds = ds.with_format("jax")
+dataset = VanDerPolDataset(n_points=1000, n_example_points=100, dt_range=(0.1, 0.1))
+dataset_jit = eqx.filter_jit(dataset)
 
 
-def shorten_traj(point, length):
-    point["x"] = point["x"][:length]
-    point["t"] = point["t"][:length]
-    return point
+def dataloader(batch_size: int = 50, *, rng: random.PRNGKey):
+    while True:
+        rng, key = random.split(rng)
+        keys = random.split(key, batch_size)
+        batch = eqx.filter_vmap(lambda key: dataset_jit(key=key))(keys)
+        yield batch
 
+
+rng, dataset_key = random.split(rng)
+dataloader_iter = dataloader(batch_size=50, rng=dataset_key)
 
 # Create model
 
-rng = random.PRNGKey(0)
-rng, model_key = random.split(rng)
 
-model = FunctionEncoder(
-    basis_size=8,
-    basis_type=NeuralODE,
-    layer_sizes=(3, 64, 2),
-    activation_function=jax.nn.tanh,
-    key=model_key,
+# Define a wrapper to create NeuralODE with ODEFunc
+def make_neural_ode(layer_sizes, *, key, **kwargs):
+    mlp = MLP(layer_sizes, key=key, **kwargs)
+    ode_func = ODEFunc(mlp)
+    return NeuralODE(ode_func, rk4_step)
+
+
+rng, basis_key = random.split(rng)
+
+n_basis = 10
+basis_functions = BasisFunctions(
+    basis_size=n_basis,
+    basis_type=make_neural_ode,
+    layer_sizes=[3, 64, 64, 2],
+    key=basis_key,
 )
 
-
-def predict_trajectory(f, y0, ts):
-    """Computes a trajectory from an initial condition y0 at times ts."""
-
-    def step_fn(y, t):
-        y = f((y, t))
-        return y, y
-
-    return jax.lax.scan(step_fn, y0, ts)
+model = FunctionEncoder(basis_functions)
 
 
-# Train
+# Train model
 
 
-def loss_function(model, point):
-    t = point["t"].astype(jnp.float64)
-    x = point["x"].astype(jnp.float64)
-    ts = jnp.hstack([t[:-1, None], t[1:, None]])
-    coefficients, _ = model.compute_coefficients((x[:-1], ts), x[1:])
-    y_pred = predict_trajectory(partial(model, coefficients=coefficients), x[0], ts)[1]
-    pred_loss = optax.squared_error(x[1:], y_pred).mean()
+def compute_pred(model, X, coefficients):
+    y_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(X, coefficients)
+    return y_pred
+
+
+@eqx.filter_value_and_grad
+def loss_function(model, batch):
+    mu, y0, dt, y1, y0_example, dt_example, y1_example = batch
+    coefficients, _ = eqx.filter_vmap(model.compute_coefficients)(
+        (y0_example, dt_example), y1_example
+    )
+    y1_pred = eqx.filter_vmap(compute_pred, in_axes=(None, 0, 0))(
+        model, (y0, dt), coefficients
+    )
+    pred_loss = optax.squared_error(y1, y1_pred).mean()
     return pred_loss
 
 
-model = fit(
-    model, ds["train"].take(100).map(partial(shorten_traj, length=10)), loss_function
+@eqx.filter_jit
+@eqx.debug.assert_max_traces(max_traces=1)
+def train_step(
+    model: eqx.Module,
+    optimizer: optax.GradientTransformation,
+    opt_state: optax.OptState,
+    batch: Any,
+) -> Tuple[eqx.Module, optax.OptState, Float]:
+    loss, grads = loss_function(model, batch)
+    updates, opt_state = optimizer.update(grads, opt_state)
+    model = eqx.apply_updates(model, updates)
+    return model, opt_state, loss
+
+
+optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(1e-3))
+opt_state = optimizer.init(eqx.filter(model, eqx.is_inexact_array))
+
+num_epochs = 1000
+with tqdm.tqdm(range(num_epochs)) as tqdm_bar:
+    for epoch in tqdm_bar:
+        batch = next(dataloader_iter)
+        model, opt_state, loss = train_step(model, optimizer, opt_state, batch)
+
+        if epoch % 10 == 0:
+            tqdm_bar.set_postfix_str(f"Loss: {loss:.2e}")
+
+
+# Plot a grid of evaluations
+
+# Generate a batch of functions for plotting
+plot_keys = random.split(rng, 9)
+batch = jax.vmap(dataset)(plot_keys)
+
+mu, y0, dt, y1, y0_example, dt_example, y1_example = batch
+
+# Precompute the coefficients for the batch
+coefficients, G = model.compute_coefficients((y0_example, dt_example), y1_example)
+
+fig, ax = plt.subplots(3, 3, figsize=(10, 10))
+
+for i in range(3):
+    for j in range(3):
+        idx = i * 3 + j
+
+        # Plot a single trajectory
+        _mu = mu[idx]
+        _y0 = random.uniform(
+            random.PRNGKey(idx),
+            (1, 2),
+            minval=dataset.y0_range[0],
+            maxval=dataset.y0_range[1],
+        )
+        # We use the coefficients that we computed before
+        _c = coefficients[idx : idx + 1]  # Keep batch dimension
+        s = 0.1  # Time step for simulation
+        n = int(10 / s)
+        _dt = jnp.array([s])
+
+        # Integrate the true trajectory
+        x = _y0.squeeze()
+        y = [x]
+        for k in range(n):
+            dx = rk4_step(van_der_pol, x, _dt[0], mu=_mu)
+            x = x + dx
+            y.append(x)
+        y = jnp.stack(y)
+
+        # Integrate the predicted trajectory
+        x = _y0
+        _dt_batch = jnp.broadcast_to(_dt, (1,))
+        pred = [x]
+        for k in range(n):
+            x_next = model((x, _dt_batch), coefficients=_c)
+            x = x + x_next  # x_next is the change, not the full state
+            pred.append(x)
+        pred = jnp.concatenate(pred, axis=0)
+
+        ax[i, j].set_xlim(-5, 5)
+        ax[i, j].set_ylim(-5, 5)
+        (_t,) = ax[i, j].plot(y[:, 0], y[:, 1], label="True")
+        (_p,) = ax[i, j].plot(pred[:, 0], pred[:, 1], label="Predicted")
+
+fig.legend(
+    handles=[_t, _p],
+    loc="outside upper center",
+    bbox_to_anchor=(0.5, 0.95),
+    ncol=2,
+    frameon=False,
 )
-model = fit(
-    model, ds["train"].take(100).map(partial(shorten_traj, length=100)), loss_function
-)
-model = fit(model, ds["train"].take(50), loss_function)
-
-
-# Plot
-
-point = ds["train"].take(1).map(partial(shorten_traj, length=500))[0]
-t = point["t"].astype(jnp.float64)
-x = point["x"].astype(jnp.float64)
-
-# y_pred = model((point["x"][0], point["t"]))
-ts = jnp.hstack([t[:-1, None], t[1:, None]])
-coefficients, _ = model.compute_coefficients((x[:-1], ts), x[1:])
-y_pred = predict_trajectory(partial(model, coefficients=coefficients), x[0], ts)[1]
-
-fig = plt.figure()
-ax = fig.add_subplot(111)
-
-ax.plot(point["x"][:, 0], point["x"][:, 1], label="True")
-ax.plot(y_pred[:, 0], y_pred[:, 1], label="Predicted")
-
-# Plot initial data
-# ax.plot(
-#     point["y"][:example_data_size, 0], point["y"][:example_data_size, 1], color="red"
-# )
 
 plt.show()
+
+# Save the model (JAX equivalent - save pytree)
+import pickle
+
+with open("van_der_pol_model.pkl", "wb") as f:
+    pickle.dump(model, f)
