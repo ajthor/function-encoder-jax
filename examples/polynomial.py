@@ -21,14 +21,16 @@ import matplotlib.pyplot as plt
 # Load dataset
 
 dataset = PolynomialDataset(n_points=100, n_example_points=10)
-# batch_function = lambda key: eqx.filter_vmap(dataset)(random.split(key, 1))
+dataset_jit = eqx.filter_jit(dataset)
 
 # Create model
 
 rng = random.PRNGKey(0)
 rng, key = random.split(rng)
 
-basis_functions = BasisFunctions(basis_size=8, layer_sizes=(1, 32, 1), key=key)
+basis_functions = BasisFunctions(
+    basis_size=8, layer_sizes=("scalar", 32, "scalar"), key=key
+)
 model = FunctionEncoder(basis_functions=basis_functions)
 
 # Train
@@ -55,12 +57,14 @@ opt = optax.MultiSteps(
 opt_state = opt.init(eqx.filter(model, eqx.is_inexact_array))
 
 num_epochs = 1000
-update = eqx.filter_jit(train_step)
+train_step_jit = eqx.filter_jit(train_step)
 with tqdm.tqdm(range(num_epochs * every_k_schedule)) as tqdm_bar:
     for epoch in tqdm_bar:
         rng, key = random.split(rng)
-        point = dataset(key)
-        model, opt_state, loss = update(model, opt, opt_state, point, loss_function)
+        point = dataset_jit(key)
+        model, opt_state, loss = train_step_jit(
+            model, opt, opt_state, point, loss_function
+        )
 
         if epoch % 10 == 0:
             tqdm_bar.set_postfix_str(f"Loss: {loss:.2e}")
@@ -69,7 +73,7 @@ with tqdm.tqdm(range(num_epochs * every_k_schedule)) as tqdm_bar:
 # Plot
 
 rng, key = random.split(rng)
-point = dataset(key)
+point = dataset_jit(key)
 
 X, y, example_X, example_y = point
 
@@ -84,8 +88,7 @@ fig = plt.figure()
 ax = fig.add_subplot(111)
 
 ax.plot(X, y, label="True")
-ax.scatter(X, y, label="Data", color="red")
-
 ax.plot(X, y_pred, label="Predicted")
-
+ax.scatter(example_X, example_y, label="Data", color="red")
+plt.legend()
 plt.show()

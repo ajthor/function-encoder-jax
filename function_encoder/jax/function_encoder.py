@@ -1,5 +1,6 @@
 from typing import Callable
 
+import jax.numpy as jnp
 from jax import random
 
 import equinox as eqx
@@ -58,7 +59,7 @@ class FunctionEncoder(eqx.Module):
     def __call__(self, X: Array, coefficients: Array):
         """Compute the function approximation."""
         g = self.basis_functions(X)
-        y = coefficients @ g
+        y = g.T @ coefficients
 
         return y
 

@@ -29,7 +29,7 @@ def monte_carlo_integration(g: Array, f: Array, inner_product: Callable):
     return coefficients, None
 
 
-def least_squares(g: Array, f: Array, inner_product: Callable, reg: float = 1e-9):
+def least_squares(g: Array, f: Array, inner_product: Callable, reg: float = 1e-3):
     """Compute the coefficients using least squares.
     
     Solves the linear system G @ coefficients = F where:

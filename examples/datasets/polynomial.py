@@ -66,7 +66,7 @@ class PolynomialDataset(eqx.Module):
         # Generate polynomial coefficients
         coefficients = random.uniform(
             coefficients_key,
-            (self.degree + 1, 1),
+            (self.degree + 1,),
             minval=self.coeff_range[0],
             maxval=self.coeff_range[1],
         )
@@ -74,7 +74,7 @@ class PolynomialDataset(eqx.Module):
         # Sample random x values
         _X = random.uniform(
             x_key,
-            (self.n_example_points + self.n_points, 1),
+            (self.n_example_points + self.n_points,),
             minval=-1.0,
             maxval=1.0,
         )

@@ -3,17 +3,16 @@ from typing import Callable, Tuple
 import jax
 from jax import random
 import jax.numpy as jnp
-from jaxtyping import Array
+from jaxtyping import Array, PRNGKeyArray
 
 import equinox as eqx
 
 
 class MLP(eqx.Module):
-    """A multi-layer perceptron neural network implemented in JAX.
+    """A multi-layer perceptron neural network using Equinox Linear layers.
     
-    This MLP uses uniform initialization with custom scaling and stores parameters
-    as tuples of (weight, bias) pairs. The forward pass applies the activation
-    function between all layers except the final output layer.
+    This MLP uses Equinox's Linear layers which handle scalar inputs properly
+    and maintain consistent shapes throughout the computation.
     
     Args:
         layer_sizes: Tuple of integers specifying the size of each layer,
@@ -22,7 +21,7 @@ class MLP(eqx.Module):
                            Defaults to jax.nn.relu
         key: JAX random key for parameter initialization
     """
-    params: Tuple
+    layers: Tuple[eqx.nn.Linear, ...]
     activation_function: Callable = jax.nn.relu
 
     def __init__(
@@ -30,35 +29,19 @@ class MLP(eqx.Module):
         layer_sizes: Tuple[int, ...],
         *,
         activation_function: Callable = jax.nn.relu,
-        key: random.PRNGKey,
+        key: PRNGKeyArray,
     ):
-
-        params = []
-
-        # Initialize the hidden layer parameters with uniform distribution
-        # Scale factor C = sqrt(1/n_in) ensures gradients don't explode/vanish
-        for n_in, n_out in zip(layer_sizes[:-2], layer_sizes[1:-1]):
-            key, w_key, b_key = random.split(key, 3)
-            C = jnp.sqrt(1 / n_in)
-            w = random.uniform(w_key, (n_in, n_out), minval=-C, maxval=C)
-            b = random.uniform(b_key, (n_out,), minval=-C, maxval=C)
-
-            params.append((w, b))
-
-        # Initialize the output layer parameters
-        key, w_key, b_key = random.split(key, 3)
-        C = jnp.sqrt(1 / layer_sizes[-2])
-        w = random.uniform(
-            w_key, (layer_sizes[-2], layer_sizes[-1]), minval=-C, maxval=C
-        )
-        b = random.uniform(b_key, (layer_sizes[-1],), minval=-C, maxval=C)
-
-        params.append((w, b))
-
-        self.params = tuple(params)
+        keys = random.split(key, len(layer_sizes) - 1)
+        layers = []
+        
+        # Create Linear layers for each consecutive pair
+        for i, (n_in, n_out) in enumerate(zip(layer_sizes[:-1], layer_sizes[1:])):
+            layers.append(eqx.nn.Linear(n_in, n_out, key=keys[i]))
+        
+        self.layers = tuple(layers)
         self.activation_function = activation_function
 
-    def __call__(self, X: Array):
+    def __call__(self, x: Array) -> Array:
         """Forward pass through the network.
         
         Applies linear transformations followed by activation functions for all
@@ -66,18 +49,17 @@ class MLP(eqx.Module):
         activation for the output layer.
         
         Args:
-            X: Input array of shape (batch_size, input_dim) or (input_dim,)
+            x: Input array (scalar or vector)
             
         Returns:
-            Output array of shape (batch_size, output_dim) or (output_dim,)
+            Output array (scalar or vector)
         """
-        # Apply hidden layers with activation
-        for w, b in self.params[:-1]:
-            y = jnp.dot(X, w) + b
-            X = self.activation_function(y)
-
+        # Apply all layers except the last with activation
+        for layer in self.layers[:-1]:
+            x = layer(x)
+            x = self.activation_function(x)
+        
         # Apply final layer without activation
-        w, b = self.params[-1]
-        y = jnp.dot(X, w) + b
-
-        return y
+        x = self.layers[-1](x)
+        
+        return x
