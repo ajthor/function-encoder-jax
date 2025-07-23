@@ -10,7 +10,7 @@ from jaxtyping import Float, Scalar
 import equinox as eqx
 import optax
 
-from datasets.van_der_pol import VanDerPolDataset, van_der_pol
+from datasets.van_der_pol import VanDerPolDataset, dataloader, van_der_pol
 
 from function_encoder.jax.model.mlp import MLP
 from function_encoder.jax.model.neural_ode import NeuralODE, ODEFunc, rk4_step
@@ -25,17 +25,8 @@ rng = random.PRNGKey(42)
 dataset = VanDerPolDataset(n_points=1000, n_example_points=100, dt_range=(0.1, 0.1))
 dataset_jit = eqx.filter_jit(dataset)
 
-
-def dataloader(batch_size: int = 50, *, rng: random.PRNGKey):
-    while True:
-        rng, key = random.split(rng)
-        keys = random.split(key, batch_size)
-        batch = eqx.filter_vmap(lambda key: dataset_jit(key=key))(keys)
-        yield batch
-
-
 rng, dataset_key = random.split(rng)
-dataloader_iter = dataloader(batch_size=50, rng=dataset_key)
+dataloader_iter = iter(dataloader(dataset_jit, rng=dataset_key, batch_size=50))
 
 # Create model
 
@@ -152,8 +143,8 @@ for i in range(3):
 
         # Integrate the predicted trajectory using scan
         def pred_step(x, _):
-            x_next_delta = model((x, _dt[0]), _c)
-            x_next = x + x_next_delta.squeeze()
+            dx = model((x, _dt[0]), _c)
+            x_next = x + dx
             return x_next, x_next
 
         _, pred_traj = jax.lax.scan(pred_step, _y0.squeeze(), None, length=n)

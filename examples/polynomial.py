@@ -11,7 +11,7 @@ from jaxtyping import Float, Scalar
 import equinox as eqx
 import optax
 
-from datasets.polynomial import PolynomialDataset
+from datasets.polynomial import PolynomialDataset, dataloader
 
 from function_encoder.jax.losses import basis_normalization_loss
 from function_encoder.jax.function_encoder import FunctionEncoder, BasisFunctions
@@ -28,16 +28,8 @@ dataset = PolynomialDataset(n_points=100, n_example_points=10)
 dataset_jit = eqx.filter_jit(dataset)
 
 
-def dataloader(batch_size: int = 50, *, rng: random.PRNGKey):
-    while True:
-        rng, key = random.split(rng)
-        keys = random.split(key, batch_size)
-        batch = eqx.filter_vmap(lambda key: dataset_jit(key=key))(keys)
-        yield batch
-
-
 rng, dataset_key = random.split(rng)
-dataloader_iter = dataloader(batch_size=50, rng=dataset_key)
+dataloader_iter = iter(dataloader(dataset_jit, rng=dataset_key, batch_size=50))
 
 # Create model
 

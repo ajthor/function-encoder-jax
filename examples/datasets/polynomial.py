@@ -87,3 +87,11 @@ class PolynomialDataset(eqx.Module):
         example_y = _y[: self.n_example_points]
 
         return X, y, example_X, example_y
+
+
+def dataloader(dataset, rng: random.PRNGKey, *, batch_size: int):
+    while True:
+        rng, key = random.split(rng)
+        keys = random.split(key, batch_size)
+        batch = eqx.filter_vmap(lambda key: dataset(key=key))(keys)
+        yield batch
