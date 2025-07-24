@@ -41,13 +41,8 @@ model = FunctionEncoder(
 # Train
 
 
-def residual_loss_function(model, X, y):
-    residual_pred = eqx.filter_vmap(eqx.filter_vmap(model.residual_function))(X)
-    residual_error = optax.squared_error(y, residual_pred).mean()
-    return residual_error
-
-
 def compute_pred(model, X, coefficients):
+    # Compute the prediction for each point in X using the coefficients
     y_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(X, coefficients)
     return y_pred
 
@@ -56,18 +51,20 @@ def compute_pred(model, X, coefficients):
 def loss_function(model, batch):
     X, y, example_X, example_y = batch
 
-    # Compute coefficients - residual gradients are blocked in compute_coefficients
+    # Compute the coefficients for each sample in the batch
     coefficients, G = eqx.filter_vmap(model.compute_coefficients, in_axes=(0, 0))(
         example_X, example_y
     )
 
-    # Compute predictions
+    # Compute the prediction for each sample in the batch
     y_pred = eqx.filter_vmap(compute_pred, in_axes=(None, 0, 0))(model, X, coefficients)
 
-    # Combined loss: prediction error + basis normalization
     pred_loss = optax.squared_error(y, y_pred).mean()
     norm_loss = eqx.filter_vmap(basis_normalization_loss)(G).mean()
-    res_loss = residual_loss_function(model, X, y)
+
+    # Compute residual loss (this is necessary to train the residual function)
+    residual_pred = eqx.filter_vmap(eqx.filter_vmap(model.residual_function))(X)
+    res_loss = optax.squared_error(y, residual_pred).mean()
 
     return pred_loss + norm_loss + res_loss
 
