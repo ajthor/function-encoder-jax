@@ -31,7 +31,7 @@ dataloader_iter = iter(dataloader(dataset_jit, rng=dataset_key, batch_size=50))
 # Create model
 
 
-def basis_function_factory(key: random.PRNGKey):
+def basis_factory(key: random.PRNGKey):
     return NeuralODE(
         ode_func=ODEFunc(
             model=MLP(layer_sizes=[3, 64, 64, 2], key=key),
@@ -40,14 +40,11 @@ def basis_function_factory(key: random.PRNGKey):
     )
 
 
-rng, basis_key = random.split(rng)
+rng, key = random.split(rng)
 
 n_basis = 8
 basis_functions = BasisFunctions(
-    basis_size=n_basis,
-    basis_type=basis_function_factory,
-    layer_sizes=[3, 64, 64, 2],
-    key=basis_key,
+    basis_size=n_basis, basis_factory=basis_factory, key=key
 )
 model = FunctionEncoder(basis_functions)
 
