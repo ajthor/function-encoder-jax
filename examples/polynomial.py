@@ -10,6 +10,7 @@ import optax
 
 from datasets.polynomial import PolynomialDataset, dataloader
 
+from function_encoder.jax.model.mlp import MLP, MultiHeadMLP
 from function_encoder.jax.losses import basis_normalization_loss
 from function_encoder.jax.function_encoder import FunctionEncoder, BasisFunctions
 
@@ -30,8 +31,8 @@ dataloader_iter = iter(dataloader(dataset_jit, rng=dataset_key, batch_size=50))
 rng = random.PRNGKey(0)
 rng, key = random.split(rng)
 
-basis_functions = BasisFunctions(
-    basis_size=8, layer_sizes=("scalar", 32, "scalar"), key=key
+basis_functions = MultiHeadMLP(
+    num_heads=8, layer_sizes=("scalar", 32, "scalar"), key=key
 )
 model = FunctionEncoder(basis_functions=basis_functions)
 

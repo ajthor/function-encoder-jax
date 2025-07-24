@@ -8,7 +8,6 @@ import equinox as eqx
 
 from jaxtyping import Array, PRNGKeyArray, Float
 
-from function_encoder.jax.model.mlp import MLP
 from function_encoder.jax.coefficients import least_squares
 from function_encoder.jax.inner_products import standard_inner_product
 
@@ -22,10 +21,23 @@ class BasisFunctions(eqx.Module):
 
     Args:
         basis_size: Number of basis functions to create
-        *args: Positional arguments passed to the basis function constructor
-        basis_type: Type of basis function to create (e.g., MLP, NeuralODE)
+        basis_factory: Function that takes a PRNGKey and returns a basis function
         key: JAX random key for parameter initialization
-        **kwargs: Keyword arguments passed to the basis function constructor
+
+    Examples:
+        # Simple MLP factory
+        def mlp_factory(key):
+            return MLP(layer_sizes=("scalar", 32, "scalar"), key=key)
+
+        basis_functions = BasisFunctions(8, mlp_factory, key)
+
+        # Neural ODE factory
+        def neural_ode_factory(key):
+            mlp = MLP(layer_sizes=[3, 64, 64, 2], key=key)
+            ode_func = ODEFunc(mlp)
+            return NeuralODE(ode_func, rk4_step)
+
+        basis_functions = BasisFunctions(10, neural_ode_factory, key)
     """
 
     basis_functions: eqx.Module
@@ -33,14 +45,11 @@ class BasisFunctions(eqx.Module):
     def __init__(
         self,
         basis_size: int,
-        *args,
-        basis_type: type = MLP,
+        basis_factory: Callable[[PRNGKeyArray], eqx.Module],
         key: PRNGKeyArray,
-        **kwargs,
-    ):
+    ) -> None:
         keys = random.split(key, basis_size)
-        make_basis_function = lambda key: basis_type(*args, **kwargs, key=key)
-        self.basis_functions = eqx.filter_vmap(make_basis_function)(keys)
+        self.basis_functions = eqx.filter_vmap(basis_factory)(keys)
 
     def __call__(self, X):
         """Evaluate all basis functions at a single input point.

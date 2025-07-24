@@ -9,7 +9,7 @@ import optax
 
 from datasets.polynomial import PolynomialDataset, dataloader
 
-from function_encoder.jax.model.mlp import MLP
+from function_encoder.jax.model.mlp import MLP, MultiHeadMLP
 from function_encoder.jax.function_encoder import FunctionEncoder, BasisFunctions
 from function_encoder.jax.losses import basis_normalization_loss
 
@@ -29,8 +29,8 @@ dataloader_iter = iter(dataloader(dataset_jit, rng=dataset_key, batch_size=50))
 rng = random.PRNGKey(0)
 rng, basis_key, residual_key = random.split(rng, 3)
 
-basis_functions = BasisFunctions(
-    basis_size=8, layer_sizes=("scalar", 32, "scalar"), key=basis_key
+basis_functions = MultiHeadMLP(
+    num_heads=8, layer_sizes=("scalar", 32, "scalar"), key=basis_key
 )
 residual_function = MLP(layer_sizes=("scalar", 32, "scalar"), key=residual_key)
 
@@ -64,9 +64,9 @@ def loss_function(model, batch):
 
     # Compute residual loss (this is necessary to train the residual function)
     residual_pred = eqx.filter_vmap(eqx.filter_vmap(model.residual_function))(X)
-    res_loss = optax.squared_error(y, residual_pred).mean()
+    residual_loss = optax.squared_error(y, residual_pred).mean()
 
-    return pred_loss + norm_loss + res_loss
+    return pred_loss + norm_loss + residual_loss
 
 
 @eqx.filter_jit
