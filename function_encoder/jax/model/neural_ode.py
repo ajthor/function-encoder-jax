@@ -1,31 +1,36 @@
-from typing import Tuple, Callable
+from typing import Tuple, Callable, Optional, Dict, Any
 
 import jax
 import jax.numpy as jnp
 
 import equinox as eqx
-from jaxtyping import Array, PRNGKeyArray
+from jaxtyping import Array, Float, Scalar
 
 from function_encoder.jax.model.mlp import MLP
 
 
-def rk4_step(func: Callable, x: Array, dt: Array, **ode_kwargs) -> Array:
+def rk4_step(
+    func: Callable[[Scalar, Float[Array, "..."]], Array],
+    x: Float[Array, "..."],
+    dt: Scalar,
+    **ode_kwargs
+) -> Float[Array, "..."]:
     """Runge-Kutta 4th order ODE integrator for a single step.
 
     Args:
-        func: ODE function that takes (t, x) and returns dx/dt
-        x: Current state vector
-        dt: Time step size
+        func (Callable): ODE function that takes (t, x) and returns dx/dt
+        x (Array): Current state vector
+        dt (Scalar): Time step size
         **ode_kwargs: Additional keyword arguments for the ODE function
 
     Returns:
-        The derivative dx computed using RK4
+        Array: The derivative dx computed using RK4
     """
     t = jnp.zeros_like(dt)
     k1 = func(t, x, **ode_kwargs)
-    k2 = func(t + dt / 2, x + (dt / 2) * k1, **ode_kwargs)
-    k3 = func(t + dt / 2, x + (dt / 2) * k2, **ode_kwargs)
-    k4 = func(t + dt, x + dt * k3, **ode_kwargs)
+    k2 = func(dt / 2, x + (dt / 2) * k1, **ode_kwargs)
+    k3 = func(dt / 2, x + (dt / 2) * k2, **ode_kwargs)
+    k4 = func(dt, x + dt * k3, **ode_kwargs)
     return (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
 
 
@@ -37,7 +42,7 @@ class ODEFunc(eqx.Module):
     vectors as input to the neural network.
 
     Args:
-        model: Neural network model (typically MLP)
+        model (eqx.Module): The neural network model (typically MLP).
     """
 
     model: eqx.Module
@@ -45,14 +50,15 @@ class ODEFunc(eqx.Module):
     def __init__(self, model: eqx.Module):
         self.model = model
 
-    def __call__(self, t, x) -> Array:
+    def __call__(self, t: Scalar, x: Float[Array, "..."]) -> Float[Array, "..."]:
         """Compute the time derivative at the current state.
 
         Args:
-            *args: Variable arguments that will be concatenated as input to the neural network
+            t (Scalar): Current time
+            x (Array): Current state vector
 
         Returns:
-            Time derivative dx/dt
+            Array: The time derivative dx/dt at the current state
         """
         tx = jnp.concatenate([jnp.atleast_1d(t), x], axis=-1)
         return self.model(tx)
@@ -62,11 +68,11 @@ class NeuralODE(eqx.Module):
     """Neural Ordinary Differential Equation model.
 
     This model uses a neural network to parameterize the dynamics of an ODE
-    and integrates it using RK4 numerical integration.
+    and integrates it using numerical integration methods.
 
     Args:
-        ode_func: ODEFunc wrapping the neural network
-        integrator: Integration function (defaults to RK4)
+        ode_func (ODEFunc): The vector field function wrapping a neural network
+        integrator (Callable): The ODE solver (e.g., `rk4_step`). Defaults to rk4_step.
     """
 
     ode_func: ODEFunc
@@ -80,13 +86,20 @@ class NeuralODE(eqx.Module):
         self.ode_func = ode_func
         self.integrator = integrator
 
-    def __call__(self, inputs) -> Array:
-        """Perform a single integration step.
+    def __call__(
+        self,
+        inputs: Tuple[Float[Array, "..."], Scalar],
+        ode_kwargs: Optional[Dict[str, Any]] = {},
+    ) -> Float[Array, "..."]:
+        """Solve the initial value problem for a single time step.
 
         Args:
-            inputs: Tuple of inputs for the dynamical system
+            inputs (tuple): A tuple containing (y0, dt), where:
+                y0 (Array): Initial condition/current state
+                dt (Scalar): Time step size
+            ode_kwargs (dict, optional): Additional integrator arguments. Defaults to {}.
 
         Returns:
-            Change in state after one integration step
+            Array: Solution of the ODE at the next time step (change in state).
         """
-        return self.integrator(self.ode_func, *inputs)
+        return self.integrator(self.ode_func, *inputs, **ode_kwargs)

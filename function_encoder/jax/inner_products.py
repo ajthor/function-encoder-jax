@@ -5,6 +5,7 @@ import equinox as eqx
 from jaxtyping import Array
 
 
+@eqx.filter_vmap(in_axes=(0, 0))
 def euclidean_inner_product(x: Array, y: Array):
     """Compute the Euclidean inner product between two vectors.
 
@@ -31,7 +32,7 @@ def standard_inner_product(f: Array, g: Array):
     Returns:
         Scalar representing the average inner product
     """
-    return eqx.filter_vmap(euclidean_inner_product, in_axes=(0, 0))(f, g).mean()
+    return euclidean_inner_product(f, g).mean()
 
 
 def centered_inner_product(f: Array, g: Array):
@@ -49,6 +50,4 @@ def centered_inner_product(f: Array, g: Array):
     """
     f_centered = f - f.mean(axis=0)
     g_centered = g - g.mean(axis=0)
-    return eqx.filter_vmap(euclidean_inner_product, in_axes=(0, 0))(
-        f_centered, g_centered
-    ).mean()
+    return euclidean_inner_product(f_centered, g_centered).mean()
