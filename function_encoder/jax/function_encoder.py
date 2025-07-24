@@ -1,5 +1,6 @@
-from typing import Callable, Tuple
+from typing import Callable, Tuple, Optional
 
+import jax
 import jax.numpy as jnp
 from jax import random
 
@@ -75,23 +76,32 @@ class FunctionEncoder(eqx.Module):
     The approximation has the form: f(x) ≈ Σᵢ cᵢ φᵢ(x), where φᵢ are basis functions
     and cᵢ are learned coefficients.
 
+    For residual learning, an optional residual_function can be provided. In this case,
+    the approximation becomes: f(x) ≈ r(x) + Σᵢ cᵢ φᵢ(x), where r(x) is the
+    residual function. During coefficient computation, gradients are blocked through
+    the residual function (equivalent to PyTorch's .detach()).
+
     Args:
         basis_functions: Collection of basis functions for approximation
+        residual_function: Optional residual function (e.g., MLP for average/bias)
         coefficients_method: Method for computing coefficients (e.g., least_squares)
         inner_product: Inner product function for coefficient computation
     """
 
     basis_functions: BasisFunctions
+    residual_function: Optional[eqx.Module]
     coefficients_method: Callable
     inner_product: Callable
 
     def __init__(
         self,
         basis_functions: BasisFunctions,
+        residual_function: Optional[eqx.Module] = None,
         coefficients_method: Callable = least_squares,
         inner_product: Callable = standard_inner_product,
     ) -> None:
         self.basis_functions = basis_functions
+        self.residual_function = residual_function
         self.coefficients_method = coefficients_method
         self.inner_product = inner_product
 
@@ -103,7 +113,8 @@ class FunctionEncoder(eqx.Module):
         """Compute coefficients for basis functions given example data.
 
         This method fits the basis functions to the provided example data by computing
-        optimal coefficients. The example data should represent a single function.
+        optimal coefficients. If a residual function is present, it subtracts the
+        residual (with gradients blocked) before computing coefficients.
 
         Note: For batch processing multiple functions, use eqx.filter_vmap:
             coeffs, G = eqx.filter_vmap(model.compute_coefficients)(X_batch, y_batch)
@@ -116,8 +127,15 @@ class FunctionEncoder(eqx.Module):
             coefficients: Learned coefficients, shape (n_basis,)
             G: Gram matrix used in coefficient computation, shape (n_basis, n_basis)
         """
+        f = example_y
+
+        if self.residual_function is not None:
+            f = f - jax.lax.stop_gradient(
+                eqx.filter_vmap(self.residual_function)(example_X)
+            )
+
         g = eqx.filter_vmap(self.basis_functions)(example_X)
-        coefficients, G = self.coefficients_method(example_y, g, self.inner_product)
+        coefficients, G = self.coefficients_method(f, g, self.inner_product)
 
         return coefficients, G
 
@@ -127,7 +145,8 @@ class FunctionEncoder(eqx.Module):
         """Evaluate the approximated function at a single input point.
 
         This method computes the function approximation f(x) ≈ Σᵢ cᵢ φᵢ(x) for a
-        single input point using precomputed coefficients.
+        single input point using precomputed coefficients. If a residual function is
+        present, it adds the residual (with gradients blocked) to the result.
 
         Note: This operates on single points. For multiple point evaluation, use vmap:
             # Single point
@@ -149,91 +168,7 @@ class FunctionEncoder(eqx.Module):
         g = self.basis_functions(X)
         y = g.T @ coefficients
 
+        if self.residual_function is not None:
+            y = y + jax.lax.stop_gradient(self.residual_function(X))
+
         return y
-
-
-class ResidualFunctionEncoder(FunctionEncoder):
-    """Function encoder that learns residuals around an average function.
-
-    This variant of FunctionEncoder first learns an average function, then uses
-    basis functions to model the residual (difference) between the true function
-    and this average. This can improve approximation quality when there are
-    common patterns across the function family.
-
-    The approximation has the form: f(x) ≈ μ(x) + Σᵢ cᵢ φᵢ(x), where μ(x) is
-    the average function and φᵢ are basis functions modeling residuals.
-
-    Args:
-        basis_size: Number of basis functions for residual modeling
-        *args: Arguments passed to basis function and average function constructors
-        basis_type: Type of basis function to create (e.g., MLP, NeuralODE)
-        coefficients_method: Method for computing coefficients
-        inner_product: Inner product function for coefficient computation
-        key: JAX random key for parameter initialization
-        **kwargs: Keyword arguments passed to constructors
-    """
-
-    average_function: MLP
-
-    def __init__(
-        self,
-        basis_size: int,
-        *args,
-        basis_type: type = MLP,
-        coefficients_method: Callable = least_squares,
-        inner_product: Callable = standard_inner_product,
-        key: PRNGKeyArray,
-        **kwargs,
-    ) -> None:
-        fe_key, avg_key = random.split(key)
-        super().__init__(
-            *args,
-            basis_size=basis_size,
-            basis_type=basis_type,
-            coefficients_method=coefficients_method,
-            inner_product=inner_product,
-            key=fe_key,
-            **kwargs,
-        )
-
-        self.average_function = basis_type(*args, **kwargs, key=avg_key)
-
-    def compute_coefficients(
-        self,
-        example_X: Float[Array, "n_examples ..."],
-        example_y: Float[Array, "n_examples"],
-    ) -> Tuple[Float[Array, "n_basis"], Float[Array, "n_basis n_basis"]]:
-        """Compute coefficients for residual modeling given example data.
-
-        First evaluates the average function at the example points, then computes
-        coefficients for basis functions to model the residual (y - average).
-
-        Args:
-            example_X: Input points for a single function, shape (n_examples, ...)
-            example_y: Output values for a single function, shape (n_examples,)
-
-        Returns:
-            coefficients: Learned coefficients for residual basis functions, shape (n_basis,)
-            G: Gram matrix used in coefficient computation, shape (n_basis, n_basis)
-        """
-        avg = eqx.filter_vmap(self.average_function)(example_X)
-        coefficients, G = super().compute_coefficients(example_X, example_y - avg)
-
-        return coefficients, G
-
-    def __call__(
-        self, X: Float[Array, "..."], coefficients: Float[Array, "n_basis"]
-    ) -> Float[Array, ""]:
-        """Evaluate the approximated function (average + residual) at input X.
-
-        Args:
-            X: Single input point (not batched)
-            coefficients: Basis function coefficients for residual, shape (n_basis,)
-
-        Returns:
-            Scalar function value: average(X) + residual_approximation(X)
-        """
-        avg = self.average_function(X)
-        y = super().__call__(X, coefficients)
-
-        return y + avg

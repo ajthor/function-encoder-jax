@@ -1,95 +1,124 @@
+from typing import Any, Tuple
 import jax
-
-jax.config.update("jax_enable_x64", True)
-
 from jax import random
 import jax.numpy as jnp
+from jaxtyping import Float
 
 import equinox as eqx
 import optax
 
-from datasets import load_dataset
+from datasets.polynomial import PolynomialDataset, dataloader
 
 from function_encoder.jax.model.mlp import MLP
+from function_encoder.jax.function_encoder import FunctionEncoder, BasisFunctions
 from function_encoder.jax.losses import basis_normalization_loss
-from function_encoder.jax.function_encoder import ResidualFunctionEncoder
-from function_encoder.jax.utils.training import fit
 
-import matplotlib.pyplot as plt
+import tqdm
 
 # Load dataset
 
-ds = load_dataset("ajthor/polynomial")
-ds = ds.with_format("jax")
+rng = random.PRNGKey(42)
+dataset = PolynomialDataset(n_points=100, n_example_points=10)
+dataset_jit = eqx.filter_jit(dataset)
 
-
-def add_bias(point):
-    point["y"] = point["y"] + jnp.polyval(jnp.array([0, 2, 2]), point["X"])
-    return point
-
-
-# We add a bias to the dataset to demonstrate the residual method.
-ds = ds.map(add_bias)
+rng, dataset_key = random.split(rng)
+dataloader_iter = iter(dataloader(dataset_jit, rng=dataset_key, batch_size=50))
 
 # Create model
 
-key = random.PRNGKey(0)
+rng = random.PRNGKey(0)
+rng, basis_key, residual_key = random.split(rng, 3)
 
-model = ResidualFunctionEncoder(
-    basis_size=8,
-    layer_sizes=(1, 32, 1),
-    activation_function=jax.nn.tanh,
-    key=key,
+basis_functions = BasisFunctions(
+    basis_size=8, layer_sizes=("scalar", 32, "scalar"), key=basis_key
 )
+residual_function = MLP(layer_sizes=("scalar", 32, "scalar"), key=residual_key)
 
+model = FunctionEncoder(
+    basis_functions=basis_functions, residual_function=residual_function
+)
 
 # Train
 
 
-def loss_function(model, point):
-    res_pred = eqx.filter_vmap(model.average_function)(point["X"][:, None])
-    res_loss = optax.squared_error(point["y"][:, None], res_pred).mean()
+def residual_loss_function(model, X, y):
+    residual_pred = eqx.filter_vmap(eqx.filter_vmap(model.residual_function))(X)
+    residual_error = optax.squared_error(y, residual_pred).mean()
+    return residual_error
 
-    coefficients, _ = model.compute_coefficients(
-        point["X"][:, None], point["y"][:, None]
+
+def compute_pred(model, X, coefficients):
+    y_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(X, coefficients)
+    return y_pred
+
+
+@eqx.filter_value_and_grad
+def loss_function(model, batch):
+    X, y, example_X, example_y = batch
+
+    # Compute coefficients - residual gradients are blocked in compute_coefficients
+    coefficients, G = eqx.filter_vmap(model.compute_coefficients, in_axes=(0, 0))(
+        example_X, example_y
     )
-    y_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(
-        point["X"][:, None], coefficients
-    )
-    pred_loss = optax.squared_error(point["y"][:, None], y_pred).mean()
-    norm_loss = basis_normalization_loss(model.basis_functions, point["X"][:, None])
+
+    # Compute predictions
+    y_pred = eqx.filter_vmap(compute_pred, in_axes=(None, 0, 0))(model, X, coefficients)
+
+    # Combined loss: prediction error + basis normalization
+    pred_loss = optax.squared_error(y, y_pred).mean()
+    norm_loss = eqx.filter_vmap(basis_normalization_loss)(G).mean()
+    res_loss = residual_loss_function(model, X, y)
+
     return pred_loss + norm_loss + res_loss
 
 
-model = fit(model, ds["train"], loss_function)
+@eqx.filter_jit
+def train_step(
+    model: eqx.Module,
+    optimizer: optax.GradientTransformation,
+    opt_state: optax.OptState,
+    batch: Any,
+) -> Tuple[eqx.Module, optax.OptState, Float]:
+    loss, grads = loss_function(model, batch)
+    updates, opt_state = optimizer.update(grads, opt_state)
+    model = eqx.apply_updates(model, updates)
+    return model, opt_state, loss
+
+
+opt = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(1e-3))
+opt_state = opt.init(eqx.filter(model, eqx.is_inexact_array))
+
+num_epochs = 1000
+with tqdm.trange(num_epochs) as tqdm_bar:
+    for epoch in tqdm_bar:
+        batch = next(dataloader_iter)
+        model, opt_state, loss = train_step(model, opt, opt_state, batch)
+        tqdm_bar.set_postfix_str(f"Loss: {loss:.2e}")
 
 
 # Plot
 
-point = ds["train"].take(1)[0]
+import matplotlib.pyplot as plt
 
-X = point["X"][:, None]
-y = point["y"][:, None]
+rng, key = random.split(rng)
+point = dataset_jit(key)
+
+X, y, example_X, example_y = point
 
 idx = jnp.argsort(X, axis=0).flatten()
 X = X[idx]
 y = y[idx]
 
-coefficients, _ = model.compute_coefficients(X, y)
+coefficients, _ = model.compute_coefficients(example_X, example_y)
 y_pred = eqx.filter_vmap(model, in_axes=(eqx.if_array(0), None))(X, coefficients)
+res_pred = eqx.filter_vmap(model.residual_function)(X)
 
 fig = plt.figure()
 ax = fig.add_subplot(111)
 
 ax.plot(X, y, label="True")
-ax.scatter(X, y, label="Data", color="red")
-
 ax.plot(X, y_pred, label="Predicted")
-
-# Plot the bias.
-avg_pred = eqx.filter_vmap(model.average_function)(X)
-ax.plot(X, jnp.polyval(jnp.array([1, 2, 3]), X), label=f"Bias")
-ax.plot(X, avg_pred, label=f"Avg function")
-
+ax.plot(X, res_pred, label="Residual", linestyle="--", color="black")
+ax.scatter(example_X, example_y, label="Data", color="red")
 plt.legend()
 plt.show()
